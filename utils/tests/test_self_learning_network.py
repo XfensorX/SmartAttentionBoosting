@@ -1,11 +1,7 @@
 import pytest
 import torch
 
-from utils.self_learning_network import (
-    SelfLearningNet,
-    combine,
-    normalize_network,
-)
+from utils.self_learning_network import SelfLearningNet, combine
 
 test_configs = [
     ([3, 6, 2], 1, 5),
@@ -23,7 +19,7 @@ def test_network_consistency(layers, input_size, output_size):
     n = SelfLearningNet(layers, input_size, output_size)
     i = torch.rand(1, input_size)
     a = n(i)
-    normalize_network(n)
+    n.normalize()
     b = n(i)
     assert torch.all(
         torch.isclose(a, b, atol=1e-6)
@@ -34,7 +30,7 @@ def test_network_consistency(layers, input_size, output_size):
 def test_weight_normalization(layers, input_size, output_size):
     """Ensures that all layer weights are properly normalized (L2 norm ≈ 1)."""
     n = SelfLearningNet(layers, input_size, output_size)
-    normalize_network(n)
+    n.normalize()
 
     for layer in range(n.num_layers):
         weights = n.get_weights(layer)

@@ -48,3 +48,5 @@ def figure_to_tensor_image(matplotlib_figure) -> torch.Tensor:
 
     image = Image.open(buf)
     return torchvision.transforms.ToTensor()(image)
+
+

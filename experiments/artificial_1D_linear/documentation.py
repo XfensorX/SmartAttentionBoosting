@@ -43,7 +43,11 @@ COLORS = [
 
 
 def plot_predictions(
-    model, name: str, summary_writer: torch.utils.tensorboard.writer.SummaryWriter
+    model,
+    name: str,
+    summary_writer: torch.utils.tensorboard.writer.SummaryWriter,
+    epoch: int = 0,
+    name_add_on: str = "",
 ):
     model.eval()
 
@@ -80,7 +84,7 @@ def plot_predictions(
         color=COLORS[3],
         label=f"{name} prediction (train)",
     )
-    ax.set_title("Prediction Plot")
+    ax.set_title("Prediction Plot" + name_add_on)
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.legend()
@@ -89,7 +93,7 @@ def plot_predictions(
     fig.tight_layout()
 
     image_tensor = figure_to_tensor_image(fig)
-    summary_writer.add_image("Prediction Plot", image_tensor, 0)
+    summary_writer.add_image("Prediction Plot" + name_add_on, image_tensor, epoch)
 
 
 def plot_data_split(

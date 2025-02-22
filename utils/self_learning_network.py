@@ -15,91 +15,78 @@ class SelfLearningNet(torch.nn.Module):
         self._hidden_layers = hidden_layers
         self.input_size = input_size
         self.output_size = output_size
-
-        self.layers = torch.nn.ModuleList([])
-
-        prev_nodes = input_size
-
-        bias_node = 1
-
-        for hidden_size in hidden_layers:
-            self.layers.append(
-                torch.nn.Linear(prev_nodes + bias_node, hidden_size, bias=False)
-            )
-            prev_nodes = hidden_size
-
-        self.layers.append(
-            torch.nn.Linear(prev_nodes + bias_node, output_size, bias=False)
-        )
-
         self.activation = activation
 
-        self.output_scaling = torch.nn.Parameter(torch.full((output_size,), 1.0))
+        self._initialize_layers()
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        def add_bias_node(tensor: torch.Tensor) -> torch.Tensor:
-            batch_size = x.shape[0]
-            bias = torch.ones((batch_size, 1), dtype=x.dtype, device=x.device)
-            return torch.cat((bias, x), dim=1)
+        self.output_scaling = torch.nn.Parameter(
+            torch.ones((output_size,), dtype=torch.float32)
+        )
 
-        for layer in self.layers[:-1]:
-            x = add_bias_node(x)
+    def _initialize_layers(self):
+        incoming_nodes = [self.input_size] + self._hidden_layers
+        outgoing_nodes = self._hidden_layers + [self.output_size]
 
-            x = layer(x)
-            x = self.activation(x)
-
-        return self.layers[-1](add_bias_node(x)) * self.output_scaling
-
-    def set_output_scaling(self, new_scaling: torch.Tensor):
-        assert self.output_scaling.shape == new_scaling.shape
-        self.output_scaling = torch.nn.Parameter(new_scaling)
-
-    def get_output_scaling(self) -> torch.Tensor:
-        return self.output_scaling.data
-
-    def set_weights(self, layer: int, weights: torch.Tensor):
-        self.layers[layer].weight.data = torch.nn.Parameter(weights)
-
-    def get_weights(self, layer: int):
-        return self.layers[layer].weight.data
+        self.layers = torch.nn.ModuleList(
+            [
+                # +1 -> adding bias as additional weight
+                torch.nn.Linear(incoming + 1, outgoing, bias=False)
+                for incoming, outgoing in zip(incoming_nodes, outgoing_nodes)
+            ]
+        )
 
     @property
     def num_layers(self):
         return len(self.layers)
 
-    def summary(self) -> str:
-        return self.__repr__()
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for layer in self.layers[:-1]:
+            x = add_bias_node(x)
+            x = layer(x)
+            x = self.activation(x)
 
-    def __str__(self):
+        return self.layers[-1](add_bias_node(x)) * self.output_scaling
+
+    def get_output_scaling(self) -> torch.Tensor:
+        return self.output_scaling.data
+
+    def set_output_scaling(self, new_scaling: torch.Tensor):
+        assert self.output_scaling.shape == new_scaling.shape
+        self.output_scaling = torch.nn.Parameter(new_scaling)
+
+    def get_weights(self, layer: int):
+        return self.layers[layer].weight.data
+
+    def set_weights(self, layer: int, weights: torch.Tensor):
+        self.layers[layer].weight.data = torch.nn.Parameter(weights)
+
+    def full_representation(self):
         result = ["SelfLearningNet Weights:"]
         for i, layer in enumerate(self.layers):
             result.append(f"Layer {i} Weights:")
             result.append(str(layer.weight.detach().cpu().numpy()))
         return "\n".join(result)
 
-    def copy_architecture(self):
-        return SelfLearningNet(
-            self._hidden_layers, self.input_size, self.output_size, self.activation
-        )
-
     def append_layer(self, nodes: int):
         self._hidden_layers = self._hidden_layers + [nodes]
-        bias_node = 1
         old_last_layer = self.layers.pop(-1)
         self.layers.append(
             torch.nn.Linear(old_last_layer.weight.shape[1], nodes, bias=False)
         )
         self.layers.append(
             torch.nn.Linear(
-                nodes + bias_node, old_last_layer.weight.shape[0], bias=False
+                # add +1 as input for bias weight
+                nodes + 1,
+                old_last_layer.weight.shape[0],
+                bias=False,
             )
         )
 
     def freeze_layer(self, layer: int):
-        self.layers[layer].requires_grad = False
+        self.layers[layer].weight.requires_grad = False
 
     def unfreeze_layer(self, layer: int):
-        self.layers[layer].requires_grad = True
+        self.layers[layer].weight.requires_grad = True
 
     def freeze_output_scaling(self):
         self.output_scaling.requires_grad = False
@@ -122,24 +109,28 @@ class SelfLearningNet(torch.nn.Module):
     def normalize_layer(self, layer: int):
         weights = self.get_weights(layer)
         norms = torch.norm(weights, p=2, dim=1)
-        new_weights = weights / norms.view(-1, 1)
 
-        self.set_weights(layer, new_weights)
+        self.set_weights(layer, weights / norms.view(-1, 1))
 
-        if layer + 1 >= self.num_layers:
+        next_layer = layer + 1
+
+        if next_layer >= self.num_layers:
             self.set_output_scaling(norms * self.get_output_scaling())
         else:
-            next_weights = self.get_weights(layer + 1)
+            self.set_weights(
+                next_layer,
+                self.get_weights(next_layer) * torch.cat((torch.tensor([1]), norms)),
+            )
 
-            norms = torch.cat((torch.tensor([1]), norms))
+    def normalize(self):
+        for layer in range(self.num_layers):
+            self.normalize_layer(layer)
 
-            new_next_weights = next_weights * norms
-            self.set_weights(layer + 1, new_next_weights)
 
-
-def normalize_network(net: SelfLearningNet):
-    for layer in range(net.num_layers):
-        net.normalize_layer(layer)
+def add_bias_node(tensor: torch.Tensor) -> torch.Tensor:
+    batch_size = tensor.shape[0]
+    bias = torch.ones((batch_size, 1), dtype=tensor.dtype, device=tensor.device)
+    return torch.cat((bias, tensor), dim=1)
 
 
 def combine(
@@ -291,7 +282,8 @@ def combine(
     netC.set_weights(
         layer + 1,
         netC.get_weights(layer + 1)
-        * torch.concat([torch.tensor([1]), ((s1 + s2) / 2)]),
+        ## TODO: Use 0 here, as bias should actually not be needed????
+        * torch.concat([torch.tensor([0]), ((s1 + s2) / 2)]),
     )
 
     return netC

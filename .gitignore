@@ -1,0 +1,11 @@
+.DS_Store
+.vscode/
+.venv/
+.mypy_cache/
+
+docs/libraries/
+**/*.egg-info
+
+logs/
+
+**/*.pytest_cache

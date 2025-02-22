@@ -223,7 +223,6 @@ def combine(
             torch.full(degree_similarities.shape, 181),
             degree_similarities,
         )
-        print(filtered_degrees)
 
         poss_merge_idx_w1 = (filtered_degrees != 181).sum(dim=1).sign()
         poss_merge_idx_w2 = (filtered_degrees != 181).sum(dim=0).sign()

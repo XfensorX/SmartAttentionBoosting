@@ -1,5 +1,11 @@
+import io
 from dataclasses import asdict, dataclass
 from functools import cached_property
+
+import matplotlib.pyplot as plt
+import torch
+import torchvision
+from PIL import Image
 
 
 def DataclassWithCachedProperties(name: str = "", not_shown: list[str] | None = None):
@@ -33,3 +39,12 @@ def DataclassWithCachedProperties(name: str = "", not_shown: list[str] | None = 
         return cls
 
     return wrapper
+
+
+def figure_to_tensor_image(matplotlib_figure) -> torch.Tensor:
+    buf = io.BytesIO()
+    matplotlib_figure.savefig(buf, format="png")
+    buf.seek(0)
+
+    image = Image.open(buf)
+    return torchvision.transforms.ToTensor()(image)

@@ -1,3 +1,4 @@
+from typing import Callable, Sequence
 import torch
 import scipy
 
@@ -40,7 +41,7 @@ class SelfLearningNet(torch.nn.Module):
         return len(self.layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        for layer in self.layers[:-1]:
+        for layer in enumerate(self.layers[:-1]):
             x = add_bias_node(x)
             x = layer(x)
             x = self.activation(x)
@@ -133,6 +134,21 @@ def add_bias_node(tensor: torch.Tensor) -> torch.Tensor:
     return torch.cat((bias, tensor), dim=1)
 
 
+NEW_WEIGHT_OPTIONS: dict[str, Callable[[Sequence[int]], torch.Tensor]] = {
+    "zeros": torch.zeros,
+    "noise": torch.randn,
+}
+
+
+def are_combinable(net1: SelfLearningNet, net2: SelfLearningNet):
+    return (
+        net1.num_layers == net2.num_layers
+        and net1.input_size == net2.input_size
+        and net1.output_size == net2.output_size
+        and isinstance(net1.activation, type(net2.activation))
+    )
+
+
 def combine(
     net1: SelfLearningNet,
     net2: SelfLearningNet,
@@ -141,19 +157,16 @@ def combine(
     seed: int = None,
 ):
     """
-    new_weight_initialization: zeros | noise
+    new_weight_initialization: zeros | noise (NEW_WEIGHT_OPTIONS constant)
+
+    Important: the input nets are going to get changed.
+    They have to deepcopied before if they get used elsewhere after.
 
     """
     if seed:
         torch.manual_seed(seed)
 
-    theta = similarity_threshold_in_degree
-    new_weight_options = {"zeros": torch.zeros, "noise": torch.randn}
-
-    assert net1.num_layers == net2.num_layers
-    assert net1.input_size == net2.input_size
-    assert net1.output_size == net2.output_size
-    assert net1.activation.__class__ == net2.activation.__class__
+    assert are_combinable(net1, net2)
 
     netC = SelfLearningNet([], net1.input_size, net1.output_size, net1.activation)
 
@@ -173,7 +186,7 @@ def combine(
                 [
                     # add [0] for additional bias node
                     w1[:, [0] + new_w1_idx_locations[0] + new_w1_idx_locations[1]],
-                    new_weight_options[new_weight_initialization](
+                    NEW_WEIGHT_OPTIONS[new_weight_initialization](
                         (w1.shape[0], len(new_w2_idx_locations[1]))
                     )
                     / (w1.shape[0]),
@@ -185,7 +198,7 @@ def combine(
                 [
                     # add [0] for additional bias node
                     w2[:, [0] + new_w2_idx_locations[0]],
-                    new_weight_options[new_weight_initialization](
+                    NEW_WEIGHT_OPTIONS[new_weight_initialization](
                         (w2.shape[0], len(new_w1_idx_locations[1]))
                     )
                     / w2.shape[0],
@@ -198,6 +211,9 @@ def combine(
         net1.normalize_layer(layer)
         net2.set_weights(layer, w2)
         net2.normalize_layer(layer)
+
+
+
         w1 = net1.get_weights(layer)
         w2 = net2.get_weights(layer)
 
@@ -210,7 +226,7 @@ def combine(
         )
 
         filtered_degrees = torch.where(
-            degree_similarities > theta,
+            degree_similarities > similarity_threshold_in_degree,
             torch.full(degree_similarities.shape, 181),
             degree_similarities,
         )
@@ -269,21 +285,21 @@ def combine(
     s1 = torch.concat(
         [
             s1[new_w1_idx_locations[0] + new_w1_idx_locations[1]],
-            torch.full((len(new_w2_idx_locations[1]),), 1),
+            torch.full((len(new_w2_idx_locations[1]),), 0),
         ]
     )
     s2 = torch.concat(
         [
             s2[new_w2_idx_locations[0]],
-            torch.full((len(new_w1_idx_locations[1]),), 1),
+            torch.full((len(new_w1_idx_locations[1]),), 0),
             s2[new_w2_idx_locations[1]],
         ]
     )
+
     netC.set_weights(
         layer + 1,
-        netC.get_weights(layer + 1)
-        ## TODO: Use 0 here, as bias should actually not be needed????
-        * torch.concat([torch.tensor([0]), ((s1 + s2) / 2)]),
+        # TODO: add back: ?? | netC.get_weights(layer + 1) * ...
+        torch.concat([torch.tensor([0]), ((s1 + s2) / 2)]).unsqueeze(0),
     )
 
     return netC

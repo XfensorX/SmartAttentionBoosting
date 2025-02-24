@@ -1,4 +1,6 @@
-from typing import Callable, Sequence
+from queue import Queue
+from random import shuffle
+from typing import Callable, Iterable, Sequence
 import torch
 import scipy
 
@@ -156,6 +158,45 @@ def are_combinable(nets: list[SelfLearningNet]):
 
 
 def switch_weight_positions(
+    weights: torch.Tensor,
+    idx_coming_first: torch.Tensor,
+    idx_coming_second: torch.Tensor,
+    bias_node_included: bool = True,
+):
+    return weights[
+        :,
+        torch.concat(
+            [
+                torch.tensor([0] if bias_node_included else []),
+                idx_coming_first,
+                idx_coming_second,
+            ],
+        ),
+    ]
+
+
+def insert_new_weights(
+    weights: torch.Tensor,
+    at_position: int,
+    no_new_weight_rows: int,
+    new_weight_initialization: str,
+):
+    return torch.concat(
+        [
+            weights[:, :at_position],
+            (
+                NEW_WEIGHT_OPTIONS[new_weight_initialization](
+                    (weights.shape[0], no_new_weight_rows)
+                )
+                / weights.shape[0]
+            ),
+            weights[:, at_position:],
+        ],
+        dim=1,
+    )
+
+
+def switch_weight_positions_and_insert_net_weights(
     net1: SelfLearningNet,
     net2: SelfLearningNet,
     layer: int,
@@ -168,37 +209,25 @@ def switch_weight_positions(
     w1 = net1.get_weights(layer)
     w2 = net2.get_weights(layer)
 
-    w1 = torch.concat(
-        [
-            # add [0] for additional bias node
-            w1[
-                :,
-                torch.concat(
-                    [
-                        torch.tensor([0]),
-                        new_w1_idx_locations_matched,
-                        new_w1_idx_locations_unmatched,
-                    ],
-                ),
-            ],
-            NEW_WEIGHT_OPTIONS[new_weight_initialization](
-                (w1.shape[0], len(new_w2_idx_locations_unmatched))
-            )
-            / (w1.shape[0]),
-        ],
-        dim=1,
+    assert w1.shape[0] == w2.shape[0]
+
+    w1 = switch_weight_positions(
+        w1, new_w1_idx_locations_matched, new_w1_idx_locations_unmatched
     )
-    w2 = torch.concat(
-        [
-            # add [0] for additional bias node
-            w2[:, torch.concat([torch.tensor([0]), new_w2_idx_locations_matched])],
-            NEW_WEIGHT_OPTIONS[new_weight_initialization](
-                (w2.shape[0], len(new_w1_idx_locations_unmatched))
-            )
-            / w2.shape[0],
-            w2[:, new_w2_idx_locations_unmatched],
-        ],
-        dim=1,
+
+    w2 = switch_weight_positions(
+        w2, new_w2_idx_locations_matched, new_w2_idx_locations_unmatched
+    )
+
+    w1 = insert_new_weights(
+        w1, w1.shape[1], len(new_w2_idx_locations_unmatched), new_weight_initialization
+    )
+
+    w2 = insert_new_weights(
+        w2,
+        len(new_w2_idx_locations_matched) + 1,
+        len(new_w1_idx_locations_unmatched),
+        new_weight_initialization,
     )
 
     net1.set_weights(layer, w1)
@@ -364,7 +393,7 @@ def combine(
         new_w2_idx_locations_matched = w2_idx_to_match + 1
         new_w2_idx_locations_unmatched = w2_idx_not_to_match + 1
 
-        switch_weight_positions(
+        switch_weight_positions_and_insert_net_weights(
             net1,
             net2,
             layer,
@@ -412,5 +441,163 @@ def combine(
     )
 
     netC.set_weights(layer + 1, weights)
+
+    return netC
+
+
+def get_new_idx_permutation(
+    idx_to_match: torch.Tensor, idx_not_to_match: torch.Tensor, not_to_match_offset: int
+):
+    length_of_matched = len(idx_to_match)
+    total_length = len(idx_to_match) + len(idx_not_to_match)
+
+    new_locations = torch.zeros((total_length,), dtype=torch.long)
+    new_locations[idx_to_match] = torch.arange(0, length_of_matched, dtype=torch.long)
+    new_locations[idx_not_to_match] = not_to_match_offset + torch.arange(
+        length_of_matched, total_length, dtype=torch.long
+    )
+
+    return new_locations
+
+
+def switch_weights_like_previous_layer(
+    weights: list[torch.Tensor],
+    weight_permutations: dict[int, torch.Tensor],
+    this_layer_output_size: int,
+    last_output_size: int,
+) -> torch.Tensor:
+    combined_weights = torch.zeros(
+        (
+            len(weights),
+            this_layer_output_size,
+            last_output_size + 1,  # +1 for bias node
+        )
+    )
+
+    for net_no, net_weight in enumerate(weights):
+        combined_weights[
+            net_no,
+            :,
+            torch.cat(
+                [torch.tensor([0]), weight_permutations[net_no] + 1]
+            ),  # shift for bias node
+        ] = net_weight
+
+    return combined_weights
+
+
+def combine_weights(
+    w1: torch.Tensor, w2: torch.Tensor, similarity_threshold_in_degree: int
+):
+
+    degree_similarities = get_degree_similarities(w1, w2)
+
+    w1_idx_to_match, w2_idx_to_match = get_indices_to_match(
+        degree_similarities, similarity_threshold_in_degree
+    )
+
+    w1_idx_not_to_match = complement_indices(w1, w1_idx_to_match)
+    w2_idx_not_to_match = complement_indices(w2, w2_idx_to_match)
+
+    new_w = torch.cat(
+        [
+            (w1[w1_idx_to_match] + w2[w2_idx_to_match]) / 2,
+            w1[w1_idx_not_to_match],
+            w2[w2_idx_not_to_match],
+        ]
+    )
+
+    new_locations_w1 = get_new_idx_permutation(
+        w1_idx_to_match, w1_idx_not_to_match, not_to_match_offset=0
+    )
+
+    new_locations_w2 = get_new_idx_permutation(
+        w2_idx_to_match,
+        w2_idx_not_to_match,
+        not_to_match_offset=len(w1_idx_not_to_match),
+    )
+
+    return new_w, (new_locations_w1, new_locations_w2)
+
+
+def combine_several(
+    nets: list[SelfLearningNet],
+    similarity_threshold_in_degree: float = 45,
+    seed: int | None = None,
+):
+    """
+    new_weight_initialization: zeros | noise (NEW_WEIGHT_OPTIONS constant)
+
+    Important: the input nets are going to get changed.
+    They have to deepcopied before if they get used elsewhere after.
+
+    """
+    if seed:
+        torch.manual_seed(seed)
+
+    total_nets = len(nets)
+
+    if total_nets < 2:
+        raise ValueError(f"Only provided {total_nets} nets. Cannot combine.")
+
+    assert are_combinable(nets)
+    input_size = nets[0].input_size
+    output_size = nets[0].output_size
+    activation = nets[0].activation
+    intermediate_output_sizes = nets[0]._hidden_layers + [output_size]
+
+    netC = SelfLearningNet([], input_size, output_size, activation)
+
+    for net in nets:
+        net.normalize()
+
+    last_output_size = input_size
+    weight_permutation_of = {
+        net_no: torch.arange(0, input_size) for net_no in range(total_nets)
+    }
+
+    for layer in range(nets[0].num_layers):
+
+        weights = switch_weights_like_previous_layer(
+            [net.get_weights(layer) for net in nets],
+            weight_permutation_of,
+            this_layer_output_size=intermediate_output_sizes[layer],
+            last_output_size=last_output_size,
+        )
+
+        combination_queue: Queue[tuple[dict[int, torch.Tensor], torch.Tensor]] = Queue()
+
+        random_net_ordering = torch.randperm(total_nets)
+
+        for index, weight in zip(
+            random_net_ordering.tolist(), weights[random_net_ordering]
+        ):
+            combination_queue.put(
+                ({index: torch.arange(0, len(weight), dtype=torch.long)}, weight)
+            )
+
+        while combination_queue.qsize() > 1:
+            weight_permutations1, w1 = combination_queue.get()
+            weight_permutations2, w2 = combination_queue.get()
+
+            new_w, (new_locations_w1, new_locations_w2) = combine_weights(
+                w1, w2, similarity_threshold_in_degree
+            )
+
+            new_net_permutations = {
+                net_no: new_locations_w1[old_idx_perm]
+                for net_no, old_idx_perm in weight_permutations1.items()
+            } | {
+                net_no: new_locations_w2[old_idx_perm]
+                for net_no, old_idx_perm in weight_permutations2.items()
+            }
+
+            combination_queue.put((new_net_permutations, new_w))
+
+        weight_permutation_of, final_weight = combination_queue.get()
+        last_output_size = final_weight.shape[0]
+
+        netC.append_layer(last_output_size)
+        netC.set_weights(layer, final_weight)
 
     return netC

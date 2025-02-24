@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from utils.self_learning_network import SelfLearningNet, combine, combine_two
+from utils.self_learning_network import SelfLearningNet, combine
 
 test_configs = [
     ([3, 6, 2], 1, 5),

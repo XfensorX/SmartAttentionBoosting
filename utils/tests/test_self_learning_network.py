@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from utils.self_learning_network import SelfLearningNet, combine
+from utils.self_learning_network import SelfLearningNet, combine, combine_two
 
 test_configs = [
     ([3, 6, 2], 1, 5),
@@ -50,8 +50,7 @@ def test_combine_keeps_weights():
     n2_loaded.load_state_dict(torch.load("utils/tests/n2.pt", weights_only=True))
 
     n3 = combine(
-        n1_loaded,
-        n2_loaded,
+        [n1_loaded, n2_loaded],
         similarity_threshold_in_degree=45,
         new_weight_initialization="zeros",
         seed=42,

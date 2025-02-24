@@ -347,7 +347,7 @@ def complement_indices(of: torch.Tensor, indices: torch.Tensor, dim: int = 0):
     return torch.LongTensor(list(set(all_indices) - set(indices.tolist())))
 
 
-def combine(
+def combine_two(
     nets: list[SelfLearningNet],
     similarity_threshold_in_degree: float = 45,
     new_weight_initialization: str = "zeros",
@@ -520,9 +520,10 @@ def combine_weights(
     return new_w, (new_locations_w1, new_locations_w2)
 
 
-def combine_several(
+def combine(
     nets: list[SelfLearningNet],
     similarity_threshold_in_degree: float = 45,
+    add_noise: bool = False,
     seed: int | None = None,
 ):
     """
@@ -595,6 +596,13 @@ def combine_several(
             combination_queue.put((new_net_permutations, new_w))
 
         weight_permutation_of, final_weight = combination_queue.get()
+        if add_noise:
+            final_weight += (
+                torch.randn(final_weight.shape)
+                / (final_weight.shape[0] + final_weight.shape[1])
+                * 2
+            )
+
         last_output_size = final_weight.shape[0]
 
         netC.append_layer(last_output_size)

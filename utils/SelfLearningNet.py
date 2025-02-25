@@ -7,8 +7,9 @@ class SelfLearningNet(torch.nn.Module):
     def __init__(
         self,
         hidden_layers: list[int],
-        input_size: int = 1,
-        output_size: int = 1,
+        input_size: int,
+        output_size: int,
+        no_additional_outputs: int = 0,
         activation=torch.nn.ReLU(),
     ):
         super().__init__()
@@ -17,12 +18,19 @@ class SelfLearningNet(torch.nn.Module):
         self.input_size = input_size
         self.output_size = output_size
         self.activation = activation
+        self.no_additional_outputs = no_additional_outputs
 
         self._initialize_layers()
 
         self.output_scaling = torch.nn.Parameter(
             torch.ones((output_size,), dtype=torch.float32)
         )
+
+        if no_additional_outputs:
+            self.other_outputs_scaling = torch.nn.Parameter(
+                torch.ones((output_size, no_additional_outputs), dtype=torch.float32)
+            )
+            self.other_outputs_scaling.requires_grad = False
 
     def _initialize_layers(self):
         incoming_nodes = [self.input_size] + self._hidden_layers
@@ -35,6 +43,14 @@ class SelfLearningNet(torch.nn.Module):
                 for incoming, outgoing in zip(incoming_nodes, outgoing_nodes)
             ]
         )
+        if self.no_additional_outputs:
+            self.other_outputs_last_layer = torch.nn.Linear(
+                (self._hidden_layers[-1] if self._hidden_layers else self.input_size)
+                + 1,
+                self.no_additional_outputs * self.output_size,
+                bias=False,
+            )
+            self.other_outputs_last_layer.weight.requires_grad = False
 
     @property
     def num_layers(self):
@@ -46,7 +62,25 @@ class SelfLearningNet(torch.nn.Module):
             x = layer(x)
             x = self.activation(x)
 
-        return self.layers[-1](add_bias_node(x)) * self.output_scaling
+        this_network_output = self.layers[-1](add_bias_node(x)) * self.output_scaling
+        if self.no_additional_outputs:
+            additional_outputs = self.other_outputs_last_layer(add_bias_node(x)).split(
+                self.output_size, dim=-1
+            )
+            # output is tuple of size no_additional_outputs with (B x output_size) each
+            additional_outputs = torch.stack(additional_outputs, dim=1).transpose(
+                -1, -2
+            )
+            # -> now we have (B x output_size x no_additional_outputs)
+
+            additional_outputs = additional_outputs * self.other_outputs_scaling
+            print((this_network_output.unsqueeze(-1).shape, additional_outputs.shape))
+            return torch.cat(
+                (this_network_output.unsqueeze(-1), additional_outputs), dim=-1
+            )
+
+        else:
+            return this_network_output
 
     def get_output_scaling(self) -> torch.Tensor:
         return self.output_scaling.data

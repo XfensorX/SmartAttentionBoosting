@@ -1,7 +1,10 @@
 import pytest
+
+from copy import deepcopy
 import torch
 
-from utils.self_learning_network import SelfLearningNet, combine_two
+from utils.SelfLearningNet import SelfLearningNet
+from utils.self_learning_network_two import combine_two
 
 test_configs = [
     ([3, 6, 2], 1, 5),
@@ -66,3 +69,60 @@ def test_combine_keeps_weights():
         ), f"Mismatch in weights between n3_combined and n3_saved!"
 
     assert torch.allclose(n3_loaded.output_scaling, n3.output_scaling)
+
+
+test_configs2 = [
+    ([3, 6, 2], 1, 5, 12, 5),
+    ([10, 20, 5], 2, 3, 6, 9),
+    ([2, 4, 4, 1], 3, 6, 0, 1),
+    ([8, 16, 8, 2], 5, 4, 0, 56),
+    ([7, 14, 7, 4], 2, 1, 1, 5),
+    ([70, 70, 70, 70, 70, 70, 70, 70, 70], 22, 12, 1000, 2048),
+]
+
+
+@pytest.mark.parametrize(
+    "layers, input_size, output_size, no_additional_outputs, batch", test_configs2
+)
+def test_gradients_of_additional_outputs_do_not_change(
+    layers, input_size, output_size, no_additional_outputs, batch
+):
+    torch.manual_seed(42)
+    n = SelfLearningNet(
+        layers,
+        input_size,
+        output_size,
+        no_additional_outputs,
+    )
+    if no_additional_outputs:
+        other_outputs_last_layers_before = deepcopy(
+            n.other_outputs_last_layer.weight.data
+        )
+        other_outputs_scaling_before = deepcopy(n.other_outputs_scaling.data)
+    input_layer_before = deepcopy(n.get_weights(0))
+
+    sample = torch.randn((batch, input_size))
+
+    optimizer = torch.optim.Adam(n.parameters(), lr=10000)
+    optimizer.zero_grad()
+
+    y_hat = n(sample)
+    if no_additional_outputs:
+        assert y_hat.shape == torch.Size(
+            (batch, output_size, no_additional_outputs + 1)
+        )
+    else:
+        assert y_hat.shape == torch.Size((batch, output_size))
+    loss = torch.nn.functional.mse_loss(y_hat, torch.rand_like(y_hat) + 5)
+    loss.backward()
+    optimizer.step()
+
+    if no_additional_outputs:
+        assert torch.allclose(
+            other_outputs_last_layers_before, n.other_outputs_last_layer.weight.data
+        )
+        assert torch.allclose(
+            other_outputs_scaling_before, n.other_outputs_scaling.data
+        )
+
+    assert not torch.allclose(input_layer_before, n.get_weights(0))

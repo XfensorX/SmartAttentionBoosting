@@ -147,7 +147,7 @@ def combine_two(
         raise NotImplementedError()
 
     netC = SelfLearningNet(
-        [], nets[0].input_size, nets[0].output_size, nets[0].activation
+        [], nets[0].input_size, nets[0].output_size, 0, nets[0].activation
     )
 
     net1 = nets[0]

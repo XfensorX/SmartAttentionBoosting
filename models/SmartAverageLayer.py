@@ -19,7 +19,7 @@ class SmartAverageLayer(torch.nn.Module):
 
     # FIXME: rename...
     @classmethod
-    def from_scratch(
+    def initialize_from_scratch(
         cls,
         input_size: int,
         output_size: int,
@@ -34,7 +34,6 @@ class SmartAverageLayer(torch.nn.Module):
             output_size=output_size,
             no_of_outputs=num_clients,
             trained_output_no=this_client_id,
-            output_accumulator="average",
             activation=activation,
         )
 
@@ -50,9 +49,11 @@ class SmartAverageLayer(torch.nn.Module):
         )
         return smart_average_model
 
-    def get_client_model(self, client_no: int):
+    def get_client_model(self, client_no: int, add_noise: bool):
         copied_global = deepcopy(self.prediction_network)
         copied_global.set_training_on_output(client_no)
+        if add_noise:
+            copied_global.add_noise()
 
         return SmartAverageLayer(copied_global)
 
@@ -66,7 +67,6 @@ class SmartAverageLayer(torch.nn.Module):
         new_prediction_network = MultiOutputNet.combine(
             [model.prediction_network for model in client_models],
             similarity_threshold_in_degree=similarity_threshold_in_degree,
-            add_noise=add_noise,
         )
         return cls(new_prediction_network)
 

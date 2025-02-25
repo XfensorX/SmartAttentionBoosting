@@ -17,7 +17,6 @@ class MultiOutputNet(torch.nn.Module):
         output_size: int,
         no_of_outputs: int = 1,
         trained_output_no: int | None = 0,
-        output_accumulator: Literal["average", "attention"] = "average",
         activation=torch.nn.ReLU(),
     ):
         super().__init__()
@@ -37,18 +36,7 @@ class MultiOutputNet(torch.nn.Module):
         self.output_scalings = self._get_initialized_output_scalings()
         self.set_training_on_output(trained_output_no)
 
-        self.accumulator_type = output_accumulator
         self._initialize_accumulator()
-
-    def _initialize_accumulator(self):
-        if self.accumulator_type == "average":
-            pass
-        elif self.accumulator_type == "attention":
-            raise NotImplementedError("Attention not Implemented Yet")
-        else:
-            raise ValueError(
-                f"Output Accumulator {self.accumulator_type} is not available"
-            )
 
     def _get_initialized_hidden_layers(self):
         if not self._hidden_layer_sizes:
@@ -319,6 +307,14 @@ class MultiOutputNet(torch.nn.Module):
         for layer in range(self.num_hidden_layers + 1):
             self.normalize_layer(layer)
 
+    def add_noise(self):
+        for layer in range(self.num_hidden_layers):
+            weights = self.get_hidden_weights(layer)
+            weights += (
+                torch.randn_like(weights) / (weights.shape[0] + weights.shape[1]) * 2
+            )
+            self.set_hidden_weights(layer, weights)
+
     def full_representation(self):
         result = [
             f"SelfLearningNet Weights: (training on output {self.trained_output_no})"
@@ -355,7 +351,6 @@ class MultiOutputNet(torch.nn.Module):
     def combine(
         nets: list["MultiOutputNet"],
         similarity_threshold_in_degree: float = 45,
-        add_noise: bool = False,
         seed: int | None = None,
     ) -> "MultiOutputNet":
         if seed:
@@ -429,13 +424,6 @@ class MultiOutputNet(torch.nn.Module):
                 combination_queue.put((new_net_permutations, new_w))
 
             weight_permutation_of, final_weight = combination_queue.get()
-
-            if add_noise:
-                final_weight += (
-                    torch.randn(final_weight.shape)
-                    / (final_weight.shape[0] + final_weight.shape[1])
-                    * 2
-                )
 
             last_output_size = final_weight.shape[0]
 

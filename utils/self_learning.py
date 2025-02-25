@@ -3,7 +3,7 @@ from typing import Callable, Sequence
 import torch
 import scipy
 
-from utils.SelfLearningNet import SelfLearningNet
+from utils.SelfLearningNet import MultiOutputNet
 
 
 NEW_WEIGHT_OPTIONS: dict[str, Callable[[Sequence[int]], torch.Tensor]] = {
@@ -12,13 +12,13 @@ NEW_WEIGHT_OPTIONS: dict[str, Callable[[Sequence[int]], torch.Tensor]] = {
 }
 
 
-def are_combinable(nets: list[SelfLearningNet]):
+def are_combinable(nets: list[MultiOutputNet]):
     if len(nets) < 2:
         return True
     net1 = nets[0]
     return all(
         (
-            net1.num_layers == net2.num_layers
+            net1.num_hidden_layers == net2.num_hidden_layers
             and net1.input_size == net2.input_size
             and net1.output_size == net2.output_size
             and isinstance(net1.activation, type(net2.activation))
@@ -148,7 +148,7 @@ def switch_weights_like_previous_layer(
 
 
 def combine_weights(
-    w1: torch.Tensor, w2: torch.Tensor, similarity_threshold_in_degree: int
+    w1: torch.Tensor, w2: torch.Tensor, similarity_threshold_in_degree: float
 ):
 
     degree_similarities = get_degree_similarities(w1, w2)
@@ -182,7 +182,7 @@ def combine_weights(
 
 
 def combine(
-    nets: list[SelfLearningNet],
+    nets: list[MultiOutputNet],
     similarity_threshold_in_degree: float = 45,
     add_noise: bool = False,
     seed: int | None = None,
@@ -206,9 +206,16 @@ def combine(
     input_size = nets[0].input_size
     output_size = nets[0].output_size
     activation = nets[0].activation
-    intermediate_output_sizes = nets[0]._hidden_layers + [output_size]
+    intermediate_output_sizes = nets[0]._hidden_layer_sizes
 
-    netC = SelfLearningNet([], input_size, output_size, activation)
+    netC = MultiOutputNet(
+        [],
+        input_size,
+        output_size,
+        no_of_outputs=len(nets),
+        trained_output_no=None,
+        activation=activation,
+    )
 
     for net in nets:
         net.normalize()
@@ -218,10 +225,10 @@ def combine(
         net_no: torch.arange(0, input_size) for net_no in range(total_nets)
     }
 
-    for layer in range(nets[0].num_layers):
+    for layer in range(nets[0].num_hidden_layers):
 
         weights = switch_weights_like_previous_layer(
-            [net.get_weights(layer) for net in nets],
+            [net.get_hidden_weights(layer) for net in nets],
             weight_permutation_of,
             this_layer_output_size=intermediate_output_sizes[layer],
             last_output_size=last_output_size,
@@ -230,7 +237,6 @@ def combine(
         combination_queue: Queue[tuple[dict[int, torch.Tensor], torch.Tensor]] = Queue()
 
         random_net_ordering = torch.randperm(total_nets)
-
         for index, weight in zip(
             random_net_ordering.tolist(), weights[random_net_ordering]
         ):
@@ -267,7 +273,27 @@ def combine(
 
         last_output_size = final_weight.shape[0]
 
-        netC.append_layer(last_output_size)
-        netC.set_weights(layer, final_weight)
+        netC.append_hidden_layer(
+            last_output_size,
+            postpone_output_layer_update=(layer != (nets[0].num_hidden_layers - 1)),
+        )
+        netC.set_hidden_weights(layer, final_weight)
 
+    all_output_weights = switch_weights_like_previous_layer(
+        [net.get_trained_output_weights() for net in nets],
+        weight_permutation_of,
+        this_layer_output_size=output_size,
+        last_output_size=last_output_size,
+    )
+
+    new_output_weights = {
+        net_no: all_output_weights[net_no, :, :] for net_no in range(len(nets))
+    }
+
+    new_output_scalings = {
+        net_no: net.get_trained_output_scalings() for net_no, net in enumerate(nets)
+    }
+
+    netC.set_new_output_scalings(new_output_scalings)
+    netC.set_new_output_weights(new_output_weights)
     return netC

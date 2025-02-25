@@ -3,8 +3,7 @@ import pytest
 from copy import deepcopy
 import torch
 
-from utils.SelfLearningNet import MultiOutputNet
-from utils.self_learning import combine
+from utils.MultiOutputNet import MultiOutputNet
 
 test_configs = [
     ([3, 6, 2], 1, 5, 3, 1, 45),
@@ -167,7 +166,7 @@ def test_combination_leaves_result_and_nets(
     sample = torch.randn((batch_size, input_size))
     individual_results = torch.stack([net(sample) for net in nets])  # C x (B x O x C)
 
-    combined_net = combine(
+    combined_net = MultiOutputNet.combine(
         nets, similarity_threshold_in_degree=0, add_noise=False, seed=42
     )
 

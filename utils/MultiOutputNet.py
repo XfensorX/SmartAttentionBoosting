@@ -1,7 +1,12 @@
+from queue import Queue
 from typing import Literal
 import torch
 
 from utils.general import add_bias_node
+from utils.self_learning import (
+    combine_weights,
+    switch_weights_like_previous_layer,
+)
 
 
 class MultiOutputNet(torch.nn.Module):
@@ -332,3 +337,131 @@ class MultiOutputNet(torch.nn.Module):
             result.append("With scaling: ")
             result.append(str(scaling.detach().cpu().numpy()))
         return "\n".join(result)
+
+    @staticmethod
+    def are_combinable(nets: list["MultiOutputNet"]):
+        if len(nets) < 2:
+            return True
+        net1 = nets[0]
+        return all(
+            (
+                net1.num_hidden_layers == net2.num_hidden_layers
+                and net1.input_size == net2.input_size
+                and net1.output_size == net2.output_size
+                and isinstance(net1.activation, type(net2.activation))
+            )
+            for net2 in nets[1:]
+        )
+
+    @staticmethod
+    def combine(
+        nets: list["MultiOutputNet"],
+        similarity_threshold_in_degree: float = 45,
+        add_noise: bool = False,
+        seed: int | None = None,
+    ) -> "MultiOutputNet":
+        if seed:
+            torch.manual_seed(seed)
+
+        total_nets = len(nets)
+
+        if total_nets < 2:
+            raise ValueError(f"Only provided {total_nets} nets. Cannot combine.")
+
+        assert MultiOutputNet.are_combinable(nets)
+        input_size = nets[0].input_size
+        output_size = nets[0].output_size
+        activation = nets[0].activation
+        intermediate_output_sizes = nets[0]._hidden_layer_sizes
+
+        netC = MultiOutputNet(
+            [],
+            input_size,
+            output_size,
+            no_of_outputs=len(nets),
+            trained_output_no=None,
+            activation=activation,
+        )
+
+        for net in nets:
+            net.normalize()
+
+        last_output_size = input_size
+        weight_permutation_of = {
+            net_no: torch.arange(0, input_size) for net_no in range(total_nets)
+        }
+
+        for layer in range(nets[0].num_hidden_layers):
+
+            weights = switch_weights_like_previous_layer(
+                [net.get_hidden_weights(layer) for net in nets],
+                weight_permutation_of,
+                this_layer_output_size=intermediate_output_sizes[layer],
+                last_output_size=last_output_size,
+            )
+
+            combination_queue: Queue[tuple[dict[int, torch.Tensor], torch.Tensor]] = (
+                Queue()
+            )
+
+            random_net_ordering = torch.randperm(total_nets)
+            for index, weight in zip(
+                random_net_ordering.tolist(), weights[random_net_ordering]
+            ):
+                combination_queue.put(
+                    ({index: torch.arange(0, len(weight), dtype=torch.long)}, weight)
+                )
+
+            while combination_queue.qsize() > 1:
+                weight_permutations1, w1 = combination_queue.get()
+                weight_permutations2, w2 = combination_queue.get()
+
+                new_w, (new_locations_w1, new_locations_w2) = combine_weights(
+                    w1, w2, similarity_threshold_in_degree
+                )
+
+                new_net_permutations = {
+                    net_no: new_locations_w1[old_idx_perm]
+                    for net_no, old_idx_perm in weight_permutations1.items()
+                } | {
+                    net_no: new_locations_w2[old_idx_perm]
+                    for net_no, old_idx_perm in weight_permutations2.items()
+                }
+
+                combination_queue.put((new_net_permutations, new_w))
+
+            weight_permutation_of, final_weight = combination_queue.get()
+
+            if add_noise:
+                final_weight += (
+                    torch.randn(final_weight.shape)
+                    / (final_weight.shape[0] + final_weight.shape[1])
+                    * 2
+                )
+
+            last_output_size = final_weight.shape[0]
+
+            netC.append_hidden_layer(
+                last_output_size,
+                postpone_output_layer_update=(layer != (nets[0].num_hidden_layers - 1)),
+            )
+            netC.set_hidden_weights(layer, final_weight)
+
+        all_output_weights = switch_weights_like_previous_layer(
+            [net.get_trained_output_weights() for net in nets],
+            weight_permutation_of,
+            this_layer_output_size=output_size,
+            last_output_size=last_output_size,
+        )
+
+        new_output_weights = {
+            net_no: all_output_weights[net_no, :, :] for net_no in range(len(nets))
+        }
+
+        new_output_scalings = {
+            net_no: net.get_trained_output_scalings() for net_no, net in enumerate(nets)
+        }
+
+        netC.set_new_output_scalings(new_output_scalings)
+        netC.set_new_output_weights(new_output_weights)
+        return netC

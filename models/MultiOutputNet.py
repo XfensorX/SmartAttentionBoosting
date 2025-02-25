@@ -36,8 +36,6 @@ class MultiOutputNet(torch.nn.Module):
         self.output_scalings = self._get_initialized_output_scalings()
         self.set_training_on_output(trained_output_no)
 
-        self._initialize_accumulator()
-
     def _get_initialized_hidden_layers(self):
         if not self._hidden_layer_sizes:
             return torch.nn.ModuleList([])

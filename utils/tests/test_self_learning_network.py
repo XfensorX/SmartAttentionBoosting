@@ -164,7 +164,7 @@ def test_combination_leaves_result_and_nets(
     individual_results = torch.stack([net(sample) for net in nets])  # C x (B x O x C)
 
     combined_net = MultiOutputNet.combine(
-        nets, similarity_threshold_in_degree=0, add_noise=False, seed=42
+        nets, similarity_threshold_in_degree=0, seed=42
     )
 
     combined_results = combined_net(sample)  # (B x O x C)

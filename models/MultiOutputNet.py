@@ -197,8 +197,6 @@ class MultiOutputNet(torch.nn.Module):
             out[:, self.trained_output_no, :] = trained_output
 
         out = out.transpose(-1, -2)
-        if self.no_of_outputs == 1:
-            out = out.squeeze(-1)
 
         return out
 

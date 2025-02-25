@@ -3,7 +3,7 @@ import pytest
 from copy import deepcopy
 import torch
 
-from utils.MultiOutputNet import MultiOutputNet
+from models.MultiOutputNet import MultiOutputNet
 
 test_configs = [
     ([3, 6, 2], 1, 5, 3, 1, 45),
@@ -98,10 +98,7 @@ def test_gradients_of_additional_outputs_do_not_change(
     optimizer.zero_grad()
 
     y_hat = n(sample)
-    if no_outputs == 1:
-        assert y_hat.shape == torch.Size((batch, output_size))
-    else:
-        assert y_hat.shape == torch.Size((batch, output_size, no_outputs))
+    assert y_hat.shape == torch.Size((batch, output_size, no_outputs))
 
     loss = torch.nn.functional.mse_loss(y_hat, torch.rand_like(y_hat) + 5)
     loss.backward()

@@ -188,3 +188,38 @@ def test_combination_leaves_result_and_nets(
         individual_results[:, :, :, trained_output_number].permute(1, 2, 0),
         atol=10e-8,
     )
+
+
+def test_average_of_one_net_is_same():
+    torch.manual_seed(42)
+    outputs = 23
+    inputs = 4
+    nets = []
+    for i in range(outputs):
+        torch.manual_seed(42)
+        nets.append(MultiOutputNet([1234, 1, 54, 345], inputs, 5, outputs, i))
+
+    all_outputs_last_layers_before = deepcopy(
+        torch.stack([nets[0].output_layers[no].weight.data for no in range(outputs)])
+    )
+    all_outputs_scaling_before = deepcopy(
+        torch.stack([nets[0].output_scalings[no].data for no in range(outputs)])
+    )
+
+    all_hidden_layers_before = deepcopy(
+        list(nets[0].get_hidden_weights(i) for i in range(nets[0].num_hidden_layers))
+    )
+
+    n = MultiOutputNet.average(nets, seed=30)
+
+    assert torch.allclose(
+        torch.stack([n.output_layers[no].weight.data for no in range(outputs)]),
+        all_outputs_last_layers_before,
+    )
+    assert torch.allclose(
+        torch.stack([n.output_scalings[no].data for no in range(outputs)]),
+        all_outputs_scaling_before,
+    )
+    assert n.num_hidden_layers == 4
+    for i in range(n.num_hidden_layers):
+        assert torch.allclose(n.get_hidden_weights(i), all_hidden_layers_before[i])

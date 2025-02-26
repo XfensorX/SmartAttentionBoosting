@@ -29,7 +29,7 @@ class SmartAttentionLayer(torch.nn.Module):
         prediction_network_architecture: list[int],
         input_importance_network_architecture: list[int],
         client_importance_network_architecture: list[int],
-        activation: ActivationFunction = torch.nn.ReLU(),
+        activation: ActivationFunction = torch.nn.functional.relu,
         device: torch.device = torch.device("cpu"),
     ):
         value_network = MultiOutputNet(

@@ -7,12 +7,6 @@ import torchvision
 from PIL import Image
 
 
-def add_bias_node(tensor: torch.Tensor) -> torch.Tensor:
-    batch_size = tensor.shape[0]
-    bias = torch.ones((batch_size, 1), dtype=tensor.dtype, device=tensor.device)
-    return torch.cat((bias, tensor), dim=1)
-
-
 def DataclassWithCachedProperties(name: str = "", not_shown: list[str] | None = None):
     def wrapper(cls):
 

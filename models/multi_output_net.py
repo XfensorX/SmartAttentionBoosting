@@ -1,7 +1,5 @@
 from queue import Queue
 import torch
-
-from utils.general import add_bias_node
 from utils.self_learning import (
     combine_weights,
     switch_weights_like_previous_layer,
@@ -17,7 +15,7 @@ class MultiOutputNet(torch.nn.Module):
         output_size: int,
         no_of_outputs: int = 1,
         trained_output_no: int | None = 0,
-        activation: ActivationFunction = torch.nn.ReLU(),
+        activation: ActivationFunction = torch.nn.functional.relu,
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__()
@@ -37,6 +35,8 @@ class MultiOutputNet(torch.nn.Module):
         self.output_layers = self._get_initialized_output_layers()
         self.output_scalings = self._get_initialized_output_scalings()
         self.set_training_on_output(trained_output_no)
+
+        self._cached_batch_size = None
 
     def _get_initialized_hidden_layers(self):
         if not self._hidden_layer_sizes:
@@ -168,13 +168,19 @@ class MultiOutputNet(torch.nn.Module):
         return len(self._hidden_layer_sizes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.shape[0] != self._cached_batch_size:
+            self._cached_batch_size = x.shape[0]
+            self._cached_bias = torch.ones(
+                (self._cached_batch_size, 1), dtype=torch.float32, device=self.device
+            )
+
         for layer in self.hidden_layers:
-            x = add_bias_node(x)
+            x = torch.hstack((self._cached_bias, x))
 
             x = layer(x)
             x = self.activation(x)
 
-        x = add_bias_node(x)
+        x = torch.hstack((self._cached_bias, x))
 
         #  (([B x H] @  [H x (no_outputs * output_size)]) = [B x (no_outputs * output_size)]
         #  split -> output_size * [B x no_outputs]
@@ -303,12 +309,17 @@ class MultiOutputNet(torch.nn.Module):
         for layer in range(self.num_hidden_layers + 1):
             self.normalize_layer(layer)
 
-    def add_noise(self):
+    def add_noise(self, everywhere: bool = False):
         for layer in range(self.num_hidden_layers):
             weights = self.get_hidden_weights(layer)
-            weights += (
+            noise = (
                 torch.randn_like(weights) / (weights.shape[0] + weights.shape[1]) * 2
             )
+            if everywhere:
+                weights += noise
+            else:
+                weights = torch.where(weights == 0.0, noise, weights)
+
             self.set_hidden_weights(layer, weights)
 
     def full_representation(self):
@@ -407,7 +418,11 @@ class MultiOutputNet(torch.nn.Module):
                 weight_permutations2, w2 = combination_queue.get()
 
                 new_w, (new_locations_w1, new_locations_w2) = combine_weights(
-                    w1, w2, similarity_threshold_in_degree
+                    w1,
+                    w2,
+                    similarity_threshold_in_degree,
+                    added_zeros_per_row=last_output_size
+                    - ([input_size] + intermediate_output_sizes)[layer],
                 )
 
                 new_net_permutations = {
@@ -439,6 +454,47 @@ class MultiOutputNet(torch.nn.Module):
 
         new_output_weights = {
             net_no: all_output_weights[net_no, :, :] for net_no in range(len(nets))
+        }
+
+        new_output_scalings = {
+            net_no: net.get_trained_output_scalings() for net_no, net in enumerate(nets)
+        }
+
+        netC.set_new_output_scalings(new_output_scalings)
+        netC.set_new_output_weights(new_output_weights)
+        return netC
+
+    @staticmethod
+    def average(
+        nets: list["MultiOutputNet"],
+        seed: int | None = None,
+    ) -> "MultiOutputNet":
+        if seed:
+            torch.manual_seed(seed)
+
+        assert MultiOutputNet.are_combinable(nets)
+        input_size = nets[0].input_size
+
+        netC = MultiOutputNet(
+            nets[0]._hidden_layer_sizes,
+            input_size,
+            nets[0].output_size,
+            no_of_outputs=len(nets),
+            trained_output_no=None,
+            activation=nets[0].activation,
+            device=nets[0].device,
+        )
+
+        for layer in range(nets[0].num_hidden_layers):
+            netC.set_hidden_weights(
+                layer,
+                torch.mean(
+                    torch.stack([net.get_hidden_weights(layer) for net in nets]), dim=0
+                ),
+            )
+
+        new_output_weights = {
+            net_no: net.get_trained_output_weights() for net_no, net in enumerate(nets)
         }
 
         new_output_scalings = {

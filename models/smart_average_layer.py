@@ -25,7 +25,7 @@ class SmartAverageLayer(torch.nn.Module):
         num_clients: int,
         this_client_id: int,
         prediction_network_architecture: list[int],
-        activation=torch.nn.ReLU(),
+        activation=torch.nn.functional.relu,
     ):
         prediction_network = MultiOutputNet(
             hidden_layer_sizes=prediction_network_architecture,

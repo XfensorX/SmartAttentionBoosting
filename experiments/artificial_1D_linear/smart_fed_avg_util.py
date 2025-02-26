@@ -16,7 +16,10 @@ def train_client(
     communication_round: int,
     writer: torch.utils.tensorboard.writer.SummaryWriter,
     learning_rate: float = 0.001,
+    device: torch.device = torch.device("cpu"),
 ):
+
+    client_model.to(device)
 
     client_model.train()
     optimizer = torch.optim.Adam(client_model.parameters(), lr=learning_rate)
@@ -24,6 +27,7 @@ def train_client(
     for epoch in range(no_epochs):
         losses: list[float] = []
         for x, y in data_loader:
+            x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
             y_hat = client_model(x)
             loss = loss_fn(y_hat, y)
@@ -44,18 +48,22 @@ def register_client_test_losses(
     client_ids: Iterable[int],
     writer: torch.utils.tensorboard.writer.SummaryWriter,
     communication_round: int,
+    plot_client_predictions: bool = False,
+    device: torch.device = torch.device("cpu"),
 ):
     for client, client_no in zip(clients, client_ids):
         writer.add_scalar(
-            f"test_loss/client{client_no}", evaluate(client), communication_round
+            f"test_loss/client{client_no}",
+            evaluate(client, device=device),
+            communication_round,
         )
 
-        ###!!!!!!!!!!!!! NOTE: remove
-        plot_predictions(
-            client,
-            f"Client {client_no}",
-            writer,
-            epoch=communication_round,
-            name_add_on=f" Client {client_no}",
-        )
-        #############
+        if plot_client_predictions:
+            plot_predictions(
+                client,
+                f"Client {client_no}",
+                writer,
+                epoch=communication_round,
+                name_add_on=f" Client {client_no}",
+                device=device,
+            )

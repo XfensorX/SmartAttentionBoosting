@@ -1,10 +1,10 @@
 from copy import deepcopy
-from models import MultiOutputNet
-
-from utils.types import ActivationFunction
-
+from math import sqrt
 
 import torch
+
+from models import MultiOutputNet
+from utils.types import ActivationFunction
 
 
 class SmartAttentionLayer(torch.nn.Module):
@@ -30,6 +30,7 @@ class SmartAttentionLayer(torch.nn.Module):
         input_importance_network_architecture: list[int],
         client_importance_network_architecture: list[int],
         activation: ActivationFunction = torch.nn.ReLU(),
+        device: torch.device = torch.device("cpu"),
     ):
         value_network = MultiOutputNet(
             hidden_layer_sizes=prediction_network_architecture,
@@ -38,6 +39,7 @@ class SmartAttentionLayer(torch.nn.Module):
             no_of_outputs=num_clients,
             trained_output_no=this_client_id,
             activation=activation,
+            device=device,
         )
 
         query_network = MultiOutputNet(
@@ -47,6 +49,7 @@ class SmartAttentionLayer(torch.nn.Module):
             no_of_outputs=num_clients,
             trained_output_no=this_client_id,
             activation=activation,
+            device=device,
         )
 
         key_network = MultiOutputNet(
@@ -56,22 +59,26 @@ class SmartAttentionLayer(torch.nn.Module):
             no_of_outputs=num_clients,
             trained_output_no=this_client_id,
             activation=activation,
+            device=device,
         )
 
-        return cls(value_network, query_network, key_network)
+        value_network.to(device)
+        query_network.to(device)
+        key_network.to(device)
+
+        new_model = cls(value_network, query_network, key_network)
+        new_model.to(device)
+
+        return new_model
 
     def get_client_model(self, client_no: int, add_noise: bool):
         global_value_network = deepcopy(self.value_network)
         global_query_network = deepcopy(self.query_network)
         global_key_network = deepcopy(self.key_network)
 
-        if add_noise:
-            for network in [
-                global_value_network,
-                global_query_network,
-                global_key_network,
-            ]:
-                network.set_training_on_output(client_no)
+        for network in [global_value_network, global_query_network, global_key_network]:
+            network.set_training_on_output(client_no)
+            if add_noise:
                 network.add_noise()
 
         return SmartAttentionLayer(
@@ -104,7 +111,7 @@ class SmartAttentionLayer(torch.nn.Module):
         query = self.query_network(x)  # outputs (B x O x C)
         key = self.key_network(x)  # outputs (B x C x C)
 
-        scale_factor = 1 / torch.sqrt(query.size(-1))
+        scale_factor = 1 / sqrt(query.size(-1))
 
         importances = ((query @ key.transpose(-1, -2)) * scale_factor).softmax(dim=-1)
 

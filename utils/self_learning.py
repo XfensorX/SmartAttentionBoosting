@@ -102,12 +102,14 @@ def switch_weights_like_previous_layer(
     this_layer_output_size: int,
     last_output_size: int,
 ) -> torch.Tensor:
+    device = weights[0].device
     combined_weights = torch.zeros(
         (
             len(weights),
             this_layer_output_size,
             last_output_size + 1,  # +1 for bias node
-        )
+        ),
+        device=device,
     )
 
     for net_no, net_weight in enumerate(weights):
@@ -115,7 +117,10 @@ def switch_weights_like_previous_layer(
             net_no,
             :,
             torch.cat(
-                [torch.tensor([0]), weight_permutations[net_no] + 1]
+                [
+                    torch.tensor([0], device=device),
+                    (weight_permutations[net_no] + 1).to(device),
+                ]
             ),  # shift for bias node
         ] = net_weight
 

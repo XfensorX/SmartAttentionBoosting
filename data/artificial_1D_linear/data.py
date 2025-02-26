@@ -1,11 +1,12 @@
 from typing import Tuple
 import torch
+from torch.utils.data.dataloader import DataLoader
 
 
 def _get_x_y(seed: int = 42):
     torch.manual_seed(seed)
     x = torch.linspace(-1, 1, 1000)
-    y = torch.where(x > 0, -(((2 * x) ** 2)), 2 * x) + torch.randn((1000,)) * 0.1
+    y = torch.where(x > 0, -((2 * x) ** 2), 2 * x) + torch.randn((1000,)) * 0.1
     return x, y
 
 
@@ -96,7 +97,7 @@ def get_client_test_dataloaders(
     shuffle: bool = False,
     train_ratio: float = 0.8,
     seed: int = 42,
-):
+) -> list[DataLoader[Tuple[torch.Tensor, ...]]]:
     """client_distribution:
     - 'random': randomly distributed onto clients
     - 'interval': input feature space is split into equally sized intervals

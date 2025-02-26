@@ -48,6 +48,7 @@ def plot_predictions(
     summary_writer: torch.utils.tensorboard.writer.SummaryWriter,
     epoch: int = 0,
     name_add_on: str = "",
+    device: torch.device = torch.device("cpu"),
 ):
     model.eval()
 
@@ -56,8 +57,8 @@ def plot_predictions(
 
     fig, ax = plt.subplots(figsize=(12, 5))
 
-    y_hat_test = model(x_test.reshape(-1, 1)).detach()
-    y_hat_train = model(x_train.reshape(-1, 1)).detach()
+    y_hat_test = model(x_test.reshape(-1, 1).to(device)).detach().cpu()
+    y_hat_train = model(x_train.reshape(-1, 1).to(device)).detach().cpu()
 
     ax.plot(
         x_test,
@@ -123,12 +124,13 @@ def plot_data_split(
     summary_writer.add_image("Data Split", image_tensor, 0)
 
 
-def evaluate(model):
+def evaluate(model, device: torch.device = torch.device("cpu")):
     model.eval()
     test_dataloader = data.get_dataloader("test")
     assert 1 == len(test_dataloader)
 
     for x, y in test_dataloader:
+        x, y = x.to(device), y.to(device)
         return torch.nn.MSELoss()(model(x), y).item()
 
 

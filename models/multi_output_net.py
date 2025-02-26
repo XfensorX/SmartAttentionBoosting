@@ -18,6 +18,7 @@ class MultiOutputNet(torch.nn.Module):
         no_of_outputs: int = 1,
         trained_output_no: int | None = 0,
         activation: ActivationFunction = torch.nn.ReLU(),
+        device: torch.device = torch.device("cpu"),
     ):
         super().__init__()
 
@@ -30,6 +31,7 @@ class MultiOutputNet(torch.nn.Module):
         self.no_of_outputs = no_of_outputs
         self.trained_output_no = -1  # as otherwise updating will not trigger
         self.activation = activation
+        self.device = device
 
         self.hidden_layers = self._get_initialized_hidden_layers()
         self.output_layers = self._get_initialized_output_layers()
@@ -47,7 +49,9 @@ class MultiOutputNet(torch.nn.Module):
         return torch.nn.ModuleList(
             [
                 # +1 -> adding bias as additional weight
-                torch.nn.Linear(incoming + bias_node, outgoing, bias=False)
+                torch.nn.Linear(
+                    incoming + bias_node, outgoing, bias=False, device=self.device
+                )
                 for incoming, outgoing in zip(incoming_nodes, outgoing_nodes)
             ]
         )
@@ -64,6 +68,7 @@ class MultiOutputNet(torch.nn.Module):
                     )
                     + bias_node,
                     self.output_size,
+                    device=self.device,
                     bias=False,
                 )
                 for _ in range(self.no_of_outputs)
@@ -73,7 +78,11 @@ class MultiOutputNet(torch.nn.Module):
     def _get_initialized_output_scalings(self):
         return torch.nn.ParameterList(
             [
-                torch.nn.Parameter(torch.ones((self.output_size,), dtype=torch.float32))
+                torch.nn.Parameter(
+                    torch.ones(
+                        (self.output_size,), dtype=torch.float32, device=self.device
+                    )
+                )
                 for _ in range(self.no_of_outputs)
             ]
         )
@@ -103,25 +112,32 @@ class MultiOutputNet(torch.nn.Module):
 
     def _setup_faster_output_calculations(self):
 
-        self._untrained_output_layer = torch.cat(
-            [
-                (
-                    layer.weight.data
-                    if output_no != self.trained_output_no
-                    else torch.zeros_like(layer.weight.data)
-                )
-                for output_no, layer in enumerate(self.output_layers)
-            ]
+        self._untrained_output_layer = torch.nn.Parameter(
+            torch.cat(
+                [
+                    (
+                        layer.weight.data
+                        if output_no != self.trained_output_no
+                        else torch.zeros_like(layer.weight.data)
+                    )
+                    for output_no, layer in enumerate(self.output_layers)
+                ]
+            ).to(device=self.device),
+            requires_grad=False,
         )
-        self._untrained_output_scaling = torch.stack(
-            [
-                (
-                    scaling.data
-                    if output_no != self.trained_output_no
-                    else torch.zeros_like(scaling.data)
-                )
-                for output_no, scaling in enumerate(self.output_scalings)
-            ],
+
+        self._untrained_output_scaling = torch.nn.Parameter(
+            torch.stack(
+                [
+                    (
+                        scaling
+                        if output_no != self.trained_output_no
+                        else torch.zeros_like(scaling.data)
+                    )
+                    for output_no, scaling in enumerate(self.output_scalings)
+                ],
+            ).to(device=self.device),
+            requires_grad=False,
         )
 
     def set_new_output_scalings(self, scaling_mapping: dict[int, torch.Tensor]):
@@ -132,9 +148,7 @@ class MultiOutputNet(torch.nn.Module):
         for output_no, new_scaling in scaling_mapping.items():
             assert new_scaling.shape == self.output_scalings[output_no].shape
 
-            self.output_scalings[output_no].data = torch.nn.Parameter(
-                new_scaling.float()
-            )
+            self.output_scalings[output_no] = torch.nn.Parameter(new_scaling.float())
 
         self._setup_faster_output_calculations()
 
@@ -202,6 +216,7 @@ class MultiOutputNet(torch.nn.Module):
                 last_hidden_layer_output_size_before + 1,
                 nodes,
                 bias=False,
+                device=self.device,
             )
         )
 
@@ -266,7 +281,12 @@ class MultiOutputNet(torch.nn.Module):
                 {
                     self.trained_output_no: (
                         self.get_trained_output_weights()
-                        * torch.cat((torch.tensor([1]), norms))
+                        * torch.cat(
+                            (
+                                torch.tensor([1], device=self.device),
+                                norms.to(self.device),
+                            )
+                        )
                     )
                 }
             )
@@ -274,7 +294,9 @@ class MultiOutputNet(torch.nn.Module):
             self.set_hidden_weights(
                 layer_no + 1,
                 self.get_hidden_weights(layer_no + 1)
-                * torch.cat((torch.tensor([1]), norms)),
+                * torch.cat(
+                    (torch.tensor([1], device=self.device), norms.to(self.device))
+                ),
             )
 
     def normalize(self):
@@ -348,6 +370,7 @@ class MultiOutputNet(torch.nn.Module):
             no_of_outputs=len(nets),
             trained_output_no=None,
             activation=activation,
+            device=nets[0].device,
         )
 
         for net in nets:

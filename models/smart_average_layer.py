@@ -1,5 +1,5 @@
 from copy import deepcopy
-from models.MultiOutputNet import MultiOutputNet
+from models.multi_output_net import MultiOutputNet
 
 
 import torch
@@ -17,7 +17,6 @@ class SmartAverageLayer(torch.nn.Module):
             1 / prediction_network.no_of_outputs,
         )
 
-    # FIXME: rename...
     @classmethod
     def initialize_from_scratch(
         cls,
@@ -62,7 +61,6 @@ class SmartAverageLayer(torch.nn.Module):
         cls,
         client_models: list["SmartAverageLayer"],
         similarity_threshold_in_degree: float,
-        add_noise: bool = True,
     ):
         new_prediction_network = MultiOutputNet.combine(
             [model.prediction_network for model in client_models],

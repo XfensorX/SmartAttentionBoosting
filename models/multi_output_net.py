@@ -1,5 +1,4 @@
 from queue import Queue
-from typing import Literal
 import torch
 
 from utils.general import add_bias_node
@@ -7,6 +6,7 @@ from utils.self_learning import (
     combine_weights,
     switch_weights_like_previous_layer,
 )
+from utils.types import ActivationFunction
 
 
 class MultiOutputNet(torch.nn.Module):
@@ -17,7 +17,7 @@ class MultiOutputNet(torch.nn.Module):
         output_size: int,
         no_of_outputs: int = 1,
         trained_output_no: int | None = 0,
-        activation=torch.nn.ReLU(),
+        activation: ActivationFunction = torch.nn.ReLU(),
     ):
         super().__init__()
 
@@ -228,30 +228,6 @@ class MultiOutputNet(torch.nn.Module):
     def set_hidden_weights(self, layer: int, weights: torch.Tensor):
         self.hidden_layers[layer].weight.data = torch.nn.Parameter(weights)
 
-    # def freeze_layer(self, layer: int):
-    #     self.hidden_layers[layer].weight.requires_grad = False
-
-    # def unfreeze_layer(self, layer: int):
-    #     self.hidden_layers[layer].weight.requires_grad = True
-
-    # def freeze_output_scaling(self):
-    #     self.output_scaling.requires_grad = False
-
-    # def unfreeze_output_scaling(self):
-    #     self.output_scaling.requires_grad = True
-
-    # def freeze_all(self):
-    #     for layer in range(self.num_hidden_layers):
-    #         self.freeze_layer(layer)
-
-    #     self.freeze_output_scaling()
-
-    # def unfreeze_all(self):
-    #     for layer in range(self.num_hidden_layers):
-    #         self.unfreeze_layer(layer)
-
-    #     self.unfreeze_output_scaling()
-
     def _is_output_layer(self, layer_no: int):
         return layer_no == self.num_hidden_layers
 
@@ -272,7 +248,7 @@ class MultiOutputNet(torch.nn.Module):
             else self.get_hidden_weights(layer_no)
         )
 
-        norms = torch.norm(weights, p=2, dim=1)
+        norms = weights.norm(p=2, dim=1)
 
         normed_weights = weights / norms.view(-1, 1)
 

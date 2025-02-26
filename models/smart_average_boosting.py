@@ -1,6 +1,6 @@
 import torch
 
-from models.SmartAverageLayer import SmartAverageLayer
+from models.smart_average_layer import SmartAverageLayer
 
 
 class SmartAverageBoosting(torch.nn.Module):

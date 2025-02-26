@@ -3,7 +3,7 @@ import pytest
 from copy import deepcopy
 import torch
 
-from models.MultiOutputNet import MultiOutputNet
+from models import MultiOutputNet
 
 test_configs = [
     ([3, 6, 2], 1, 5, 3, 1, 45),

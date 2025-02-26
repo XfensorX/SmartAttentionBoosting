@@ -1,10 +1,12 @@
-import torch
 import scipy
+import torch
 
 
 def get_degree_similarities(
-    weights_a: torch.Tensor,
-    weights_b: torch.Tensor,
+    weights_a: torch.Tensor,  # (A1 x A2)
+    weights_b: torch.Tensor,  # (B1 x B2) -> A1 x B1
+    added_zeros_per_row: int,
+    maximum_accepted_matching_degree: float,
 ) -> torch.Tensor:
     """
     Returns degree between each individual weight vector (row-vector) of the two input weight matricies
@@ -14,7 +16,27 @@ def get_degree_similarities(
     similarities = weights_a @ weights_b.transpose(0, 1)
     assert not (torch.any(similarities > 1.0001) or torch.any(similarities < -1.0001))
 
-    return similarities.clamp(-1.0, 1.0).arccos().rad2deg()
+    degree_similarities = similarities.clamp(-1.0, 1.0).arccos().rad2deg()
+
+    assert (
+        added_zeros_per_row >= 0 and added_zeros_per_row < weights_a.shape[1]
+    ), added_zeros_per_row
+
+    maximum_aligning_values = weights_a.shape[1] - added_zeros_per_row
+    scaling_factor = (
+        (weights_a != 0).to(torch.float)
+        @ (weights_b.transpose(0, 1) != 0).to(torch.float)
+    ).reciprocal() * maximum_aligning_values
+
+    scaled_similarities = (
+        (similarities * scaling_factor).clamp(-1.0, 1.0).arccos().rad2deg()
+    )
+    scaled_similarities = torch.max(
+        scaled_similarities,
+        torch.full_like(scaled_similarities, 0.999 * maximum_accepted_matching_degree),
+    )
+
+    return torch.min(degree_similarities, scaled_similarities)
 
 
 def get_indices_to_match(
@@ -35,8 +57,12 @@ def get_indices_to_match(
     OUT_OF_REACH_DEGREE_PENALTY = 99999999999.0
 
     filtered_degrees = torch.where(
-        degree_similarities > similarity_threshold_in_degree,
-        torch.full(degree_similarities.shape, OUT_OF_REACH_DEGREE_PENALTY),
+        degree_similarities >= similarity_threshold_in_degree,
+        torch.full(
+            degree_similarities.shape,
+            OUT_OF_REACH_DEGREE_PENALTY,
+            device=degree_similarities.device,
+        ),
         degree_similarities,
     )
     # for better performance, we first permute the matrix to push all non-matching pairs (degree==penalty)
@@ -59,7 +85,7 @@ def get_indices_to_match(
     permuted_idx_dim0, permuted_idx_dim1 = scipy.optimize.linear_sum_assignment(
         permuted_filtered_degrees[
             : sum(dim0_is_possible_match), : sum(dim1_is_possible_match)
-        ]
+        ].to(torch.device("cpu"))
     )
     dim0_idx_to_match = dim0_permutation[permuted_idx_dim0]
     dim1_idx_to_match = dim1_permutation[permuted_idx_dim1]
@@ -128,10 +154,18 @@ def switch_weights_like_previous_layer(
 
 
 def combine_weights(
-    w1: torch.Tensor, w2: torch.Tensor, similarity_threshold_in_degree: float
+    w1: torch.Tensor,
+    w2: torch.Tensor,
+    similarity_threshold_in_degree: float,
+    added_zeros_per_row: int,
 ):
 
-    degree_similarities = get_degree_similarities(w1, w2)
+    degree_similarities = get_degree_similarities(
+        w1,
+        w2,
+        added_zeros_per_row=added_zeros_per_row,
+        maximum_accepted_matching_degree=similarity_threshold_in_degree,
+    )
 
     w1_idx_to_match, w2_idx_to_match = get_indices_to_match(
         degree_similarities, similarity_threshold_in_degree

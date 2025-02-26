@@ -64,8 +64,6 @@ class SmartAttentionLayer(torch.nn.Module):
         global_value_network = deepcopy(self.value_network)
         global_query_network = deepcopy(self.query_network)
         global_key_network = deepcopy(self.key_network)
-        for network in [global_value_network, global_query_network, global_key_network]:
-            network.set_training_on_output(client_no)
 
         if add_noise:
             for network in [

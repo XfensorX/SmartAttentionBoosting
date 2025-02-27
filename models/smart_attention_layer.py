@@ -77,7 +77,9 @@ class SmartAttentionLayer(torch.nn.Module):
 
         return new_model
 
-    def get_client_model(self, client_no: int, add_noise: bool):
+    def get_client_model(
+        self, client_no: int, add_noise: bool
+    ) -> "SmartAttentionLayer":
         global_value_network = deepcopy(self.value_network)
         global_query_network = deepcopy(self.query_network)
         global_key_network = deepcopy(self.key_network)

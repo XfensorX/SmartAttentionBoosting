@@ -18,6 +18,7 @@ def evaluate(
     model: torch.nn.Module,
     test_dataloader: torch.utils.data.DataLoader[Tuple[torch.Tensor, ...]],
     from_logits: bool = False,
+    return_outputs_only: bool = False,
 ):
     running_ys: list[torch.Tensor] = []
     running_yhats: list[torch.Tensor] = []
@@ -27,13 +28,16 @@ def evaluate(
     with torch.no_grad():
         for x, y in test_dataloader:
             y_hat = model(x)
-            if from_logits:
+            if from_logits and not return_outputs_only:
                 y_hat = y_hat.sigmoid().round()
             running_ys.append(y)
             running_yhats.append(y_hat)
 
     ys = torch.vstack(running_ys)
     y_hats = torch.vstack(running_yhats)
+
+    if return_outputs_only:
+        return y_hats, ys
 
     return Metrics(
         inputs=y_hats,

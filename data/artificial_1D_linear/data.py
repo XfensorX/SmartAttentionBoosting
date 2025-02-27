@@ -2,6 +2,8 @@ from typing import Tuple
 import torch
 from torch.utils.data.dataloader import DataLoader
 
+from utils.data import split_dataset_into_subsets
+
 
 def _get_x_y(seed: int = 42):
     torch.manual_seed(seed)
@@ -53,44 +55,7 @@ def get_dataloader(
     return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
 
-def _split_dataset_into_subsets(
-    dataset: torch.utils.data.TensorDataset,
-    no_clients: int,
-    client_distribution: str,
-    seed: int = 42,
-):
-    """client_distribution:
-    - 'random': randomly distributed onto clients
-    - 'interval': input feature space is split into equally sized intervals
-    """
-    subsets: list[torch.utils.data.Subset[Tuple[torch.Tensor, ...]]] = []
-
-    if client_distribution == "random":
-        subsets = torch.utils.data.random_split(
-            dataset,
-            [1 / no_clients] * no_clients,
-            generator=torch.Generator().manual_seed(seed),
-        )
-
-    elif client_distribution == "interval":
-        indices = list(range(len(dataset)))
-        remainder = len(dataset) % no_clients
-        interval_length = len(dataset) // no_clients
-
-        start_idx = 0
-        for i in range(no_clients):
-            end = start_idx + interval_length + (1 if i < remainder else 0)
-            subsets.append(torch.utils.data.Subset(dataset, indices[start_idx:end]))
-            start_idx = end
-    else:
-        raise ValueError(
-            f"Wrong option for client_distribution. {client_distribution} not implemented"
-        )
-
-    return subsets
-
-
-def get_client_test_dataloaders(
+def get_client_train_dataloaders(
     no_clients: int,
     client_distribution: str,
     batch_size: int = -1,
@@ -104,9 +69,7 @@ def get_client_test_dataloaders(
     """
     dataset = get_dataset("train", train_ratio, seed)
 
-    subsets = _split_dataset_into_subsets(
-        dataset, no_clients, client_distribution, seed
-    )
+    subsets = split_dataset_into_subsets(dataset, no_clients, client_distribution, seed)
 
     return [
         torch.utils.data.DataLoader(

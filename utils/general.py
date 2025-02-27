@@ -1,6 +1,8 @@
 import io
+import time
 from dataclasses import asdict, dataclass
 from functools import cached_property
+from typing import Any
 
 import torch
 import torchvision
@@ -51,3 +53,14 @@ def figure_to_tensor_image(matplotlib_figure) -> torch.Tensor:
 
 def get_logging_dir(name: str, experiment: str):
     return f"../../logs/{experiment}/{name}/{time.strftime('%m-%d-%H-%M-%S', time.localtime())}"
+
+
+def make_values_scalar(x: dict[Any, Any]) -> dict[Any, Any]:
+    return {
+        k: (
+            value
+            if type(value) in ["float", "int", "str"] or torch.is_tensor(value)
+            else str(value)
+        )
+        for k, value in x.items()
+    }

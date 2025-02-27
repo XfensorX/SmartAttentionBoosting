@@ -1,5 +1,6 @@
 from copy import deepcopy
 from math import sqrt
+from typing import Literal
 
 import torch
 
@@ -13,11 +14,21 @@ class SmartAttentionLayer(torch.nn.Module):
         value_network: MultiOutputNet,
         query_network: MultiOutputNet,
         key_network: MultiOutputNet,
+        device: torch.device = torch.device("cpu"),
     ):
+
+        self.device = device
+
         super().__init__()
         self.value_network = value_network
         self.query_network = query_network
         self.key_network = key_network
+
+        self.value_network.to(self.device)
+        self.query_network.to(self.device)
+        self.key_network.to(self.device)
+
+        self.to(self.device)
 
     @classmethod
     def initialize_from_scratch(
@@ -62,12 +73,7 @@ class SmartAttentionLayer(torch.nn.Module):
             device=device,
         )
 
-        value_network.to(device)
-        query_network.to(device)
-        key_network.to(device)
-
-        new_model = cls(value_network, query_network, key_network)
-        new_model.to(device)
+        new_model = cls(value_network, query_network, key_network, device=device)
 
         return new_model
 
@@ -90,26 +96,44 @@ class SmartAttentionLayer(torch.nn.Module):
         cls,
         client_models: list["SmartAttentionLayer"],
         similarity_threshold_in_degree: float,
+        method: Literal["combine", "average"],
     ):
-        new_query_network = MultiOutputNet.combine(
-            [model.query_network for model in client_models],
-            similarity_threshold_in_degree=similarity_threshold_in_degree,
-        )
-        new_value_network = MultiOutputNet.combine(
-            [model.value_network for model in client_models],
-            similarity_threshold_in_degree=similarity_threshold_in_degree,
-        )
-        new_key_network = MultiOutputNet.combine(
-            [model.key_network for model in client_models],
-            similarity_threshold_in_degree=similarity_threshold_in_degree,
-        )
+        if method == "combine":
+            new_query_network = MultiOutputNet.combine(
+                [model.query_network for model in client_models],
+                similarity_threshold_in_degree=similarity_threshold_in_degree,
+            )
+            new_value_network = MultiOutputNet.combine(
+                [model.value_network for model in client_models],
+                similarity_threshold_in_degree=similarity_threshold_in_degree,
+            )
+            new_key_network = MultiOutputNet.combine(
+                [model.key_network for model in client_models],
+                similarity_threshold_in_degree=similarity_threshold_in_degree,
+            )
+        elif method == "average":
+            new_query_network = MultiOutputNet.average(
+                [model.query_network for model in client_models]
+            )
+            new_value_network = MultiOutputNet.average(
+                [model.value_network for model in client_models]
+            )
+            new_key_network = MultiOutputNet.average(
+                [model.key_network for model in client_models]
+            )
+        else:
+            raise ValueError(f"Method {method} not implemented")
 
         return cls(new_value_network, new_query_network, new_key_network)
 
-    def forward(self, x: torch.Tensor):
-        value = self.value_network(x)  # outputs (B x O x C)
-        query = self.query_network(x)  # outputs (B x O x C)
-        key = self.key_network(x)  # outputs (B x C x C)
+    def forward(
+        self,
+        layer_input: torch.Tensor,
+        original_input: torch.Tensor,
+    ):
+        value = self.value_network(layer_input)  # outputs (B x O x C)
+        query = self.query_network(original_input)  # outputs (B x O x C)
+        key = self.key_network(layer_input)  # outputs (B x C x C)
 
         scale_factor = 1 / sqrt(query.size(-1))
 

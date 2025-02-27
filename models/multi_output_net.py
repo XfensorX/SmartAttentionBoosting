@@ -103,12 +103,15 @@ class MultiOutputNet(torch.nn.Module):
         for no_of_output_layer, (output_layer, output_scaling) in enumerate(
             zip(self.output_layers, self.output_scalings)
         ):
-            need_gradients = (no_of_output_layer == self.trained_output_no) or (
-                self.trained_output_no is None
-            )
+            need_gradients = no_of_output_layer == self.trained_output_no
 
             output_layer.weight.requires_grad = need_gradients
             output_scaling.requires_grad = need_gradients
+
+        with torch.no_grad():
+            if self.trained_output_no is None:
+                for parameter in self.parameters():
+                    parameter.requires_grad = False
 
     def _setup_faster_output_calculations(self):
 
@@ -171,7 +174,9 @@ class MultiOutputNet(torch.nn.Module):
         if x.shape[0] != self._cached_batch_size:
             self._cached_batch_size = x.shape[0]
             self._cached_bias = torch.ones(
-                (self._cached_batch_size, 1), dtype=torch.float32, device=self.device
+                (self._cached_batch_size, 1),
+                dtype=torch.float32,
+                device=self.device,
             )
 
         for layer in self.hidden_layers:

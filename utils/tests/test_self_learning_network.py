@@ -223,3 +223,13 @@ def test_average_of_one_net_is_same():
     assert n.num_hidden_layers == 4
     for i in range(n.num_hidden_layers):
         assert torch.allclose(n.get_hidden_weights(i), all_hidden_layers_before[i])
+
+
+def test_all_layers_are_off():
+    n = MultiOutputNet([1234, 1, 54, 345], 5, 5, 123, 0)
+    n.set_training_on_output(None)
+
+    assert all([not param.requires_grad for param in n.parameters()])
+
+    n = MultiOutputNet([1234, 1, 54, 345], 5, 5, 123, None)
+    assert all([not param.requires_grad for param in n.parameters()])

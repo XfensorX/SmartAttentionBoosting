@@ -41,9 +41,9 @@ def DataclassWithCachedProperties(name: str = "", not_shown: list[str] | None = 
 
 
 def figure_to_tensor_image(matplotlib_figure) -> torch.Tensor:
-    buf = io.BytesIO()
-    matplotlib_figure.savefig(buf, format="png")
-    buf.seek(0)
+    with io.BytesIO() as buf:
+        matplotlib_figure.savefig(buf, format="png")
+        buf.seek(0)
 
-    image = Image.open(buf)
-    return torchvision.transforms.ToTensor()(image)
+        image = Image.open(buf)
+        return torchvision.transforms.ToTensor()(image)

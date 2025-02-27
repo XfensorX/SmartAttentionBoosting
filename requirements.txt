@@ -109,6 +109,7 @@ pycodestyle==2.12.1
 pycparser==2.22
 pyflakes==3.2.0
 Pygments==2.18.0
+pyinstrument==5.0.1
 pyparsing==3.2.1
 pytest==8.3.4
 python-dateutil==2.9.0.post0

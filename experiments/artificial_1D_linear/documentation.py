@@ -1,4 +1,3 @@
-import time
 from typing import Tuple
 
 import matplotlib.pyplot as plt
@@ -132,10 +131,6 @@ def evaluate(model, device: torch.device = torch.device("cpu")):
     for x, y in test_dataloader:
         x, y = x.to(device), y.to(device)
         return torch.nn.MSELoss()(model(x), y).item()
-
-
-def get_logging_dir(name: str):
-    return f"../../logs/artificial_1D_linear/{name}/{time.strftime('%m-%d-%H-%M-%S', time.localtime())}"
 
 
 def plot_dataset():

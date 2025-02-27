@@ -47,3 +47,7 @@ def figure_to_tensor_image(matplotlib_figure) -> torch.Tensor:
 
         image = Image.open(buf)
         return torchvision.transforms.ToTensor()(image)
+
+
+def get_logging_dir(name: str, experiment: str):
+    return f"../../logs/{experiment}/{name}/{time.strftime('%m-%d-%H-%M-%S', time.localtime())}"

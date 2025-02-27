@@ -3,9 +3,10 @@ import argparse
 import torch
 
 import data.adult
+from training.train_basic_nn import train_basic_nn
+from training.train_fed_avg import train_fed_avg
+from training.train_smart_attention import train_smart_attention
 from utils.Config import Config
-from utils.training import train_basic_nn, train_fed_avg, train_smart_attention
-
 
 BATCH_SIZE = 256
 DEVICE = torch.device("cpu")

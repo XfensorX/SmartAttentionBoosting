@@ -2,53 +2,15 @@ from functools import cached_property
 from typing import Tuple
 
 import torch
+from torchinfo import summary
 from torchmetrics.classification import (
-    BinaryPrecision,
-    BinaryRecall,
     BinaryAccuracy,
     BinaryF1Score,
+    BinaryPrecision,
+    BinaryRecall,
 )
 
 from .general import DataclassWithCachedProperties
-
-from torchinfo import summary
-
-
-def evaluate(
-    model: torch.nn.Module,
-    test_dataloader: torch.utils.data.DataLoader[Tuple[torch.Tensor, ...]],
-    from_logits: bool = False,
-    return_outputs_only: bool = False,
-):
-    running_ys: list[torch.Tensor] = []
-    running_yhats: list[torch.Tensor] = []
-
-    model.eval()
-
-    with torch.no_grad():
-        for x, y in test_dataloader:
-            y_hat = model(x)
-            if from_logits and not return_outputs_only:
-                y_hat = y_hat.sigmoid().round()
-            running_ys.append(y)
-            running_yhats.append(y_hat)
-
-    ys = torch.vstack(running_ys)
-    y_hats = torch.vstack(running_yhats)
-
-    if return_outputs_only:
-        return y_hats, ys
-
-    return Metrics(
-        inputs=y_hats,
-        targets=ys,
-        model_summary=get_model_summary(model),
-        model_parameter_count=summary(model, verbose=0).total_params,
-    )
-
-
-def get_model_summary(model: torch.nn.Module) -> str:
-    return str(model)
 
 
 @DataclassWithCachedProperties(
@@ -81,3 +43,40 @@ class Metrics:
         return torch.nn.functional.mse_loss(
             self.inputs.float(), self.targets.float()
         ).item()
+
+
+def evaluate(
+    model: torch.nn.Module,
+    test_dataloader: torch.utils.data.DataLoader[Tuple[torch.Tensor, ...]],
+    from_logits: bool = False,
+    return_outputs_only: bool = False,
+) -> Tuple[torch.Tensor] | Metrics:
+    running_ys: list[torch.Tensor] = []
+    running_yhats: list[torch.Tensor] = []
+
+    model.eval()
+
+    with torch.no_grad():
+        for x, y in test_dataloader:
+            y_hat = model(x)
+            if from_logits and not return_outputs_only:
+                y_hat = y_hat.sigmoid().round()
+            running_ys.append(y)
+            running_yhats.append(y_hat)
+
+    ys = torch.vstack(running_ys)
+    y_hats = torch.vstack(running_yhats)
+
+    if return_outputs_only:
+        return y_hats, ys
+
+    return Metrics(
+        inputs=y_hats,
+        targets=ys,
+        model_summary=get_model_summary(model),
+        model_parameter_count=summary(model, verbose=0).total_params,
+    )
+
+
+def get_model_summary(model: torch.nn.Module) -> str:
+    return str(model)

@@ -38,43 +38,18 @@ class SmartAttentionBoosting(torch.nn.Module):
 
     def add_new_boosting_layer(self):
 
-        value_network = MultiOutputNet(
-            hidden_layer_sizes=self.prediction_network_architecture,
-            input_size=(
-                self.input_size if not self.boosting_layers else self.output_size
-            ),
-            output_size=self.output_size,
-            no_of_outputs=self.num_clients,
-            trained_output_no=None,
-            activation=self.activation,
-            device=self.device,
-        )
-
-        query_network = MultiOutputNet(
-            hidden_layer_sizes=self.input_importance_network_architecture,
-            input_size=self.input_size,
-            output_size=self.output_size,
-            no_of_outputs=self.num_clients,
-            trained_output_no=None,
-            activation=self.activation,
-            device=self.device,
-        )
-
-        key_network = MultiOutputNet(
-            hidden_layer_sizes=self.client_importance_network_architecture,
-            input_size=(
-                self.input_size if not self.boosting_layers else self.output_size
-            ),  #! different
-            output_size=self.num_clients,  #! different
-            no_of_outputs=self.num_clients,
-            trained_output_no=None,
-            activation=self.activation,
-            device=self.device,
-        )
-
         self.boosting_layers.append(
-            SmartAttentionLayer(
-                value_network, query_network, key_network, device=self.device
+            SmartAttentionLayer.initialize_from_scratch(
+                self.output_size if self.boosting_layers else self.input_size,
+                self.output_size,
+                self.num_clients,
+                None,
+                self.prediction_network_architecture,
+                self.input_importance_network_architecture,
+                self.client_importance_network_architecture,
+                self.input_size,
+                self.activation,
+                self.device,
             )
         )
 
@@ -84,7 +59,7 @@ class SmartAttentionBoosting(torch.nn.Module):
 
         original_input = x
 
-        prediction = self.boosting_layers[0](original_input, original_input)
+        prediction = self.boosting_layers[0](original_input)
 
         for layer in self.boosting_layers[1:]:
             prediction = prediction + layer(prediction, original_input)

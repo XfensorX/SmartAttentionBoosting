@@ -36,7 +36,7 @@ class MultiOutputNet(torch.nn.Module):
         self.output_scalings = self._get_initialized_output_scalings()
         self.set_training_on_output(trained_output_no)
 
-        self._cached_batch_size = None
+        self._cached_bias = {}
 
     def _get_initialized_hidden_layers(self):
         if not self._hidden_layer_sizes:
@@ -171,21 +171,21 @@ class MultiOutputNet(torch.nn.Module):
         return len(self._hidden_layer_sizes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if x.shape[0] != self._cached_batch_size:
-            self._cached_batch_size = x.shape[0]
-            self._cached_bias = torch.ones(
-                (self._cached_batch_size, 1),
+        b = x.shape[0]  # batch_size
+        if b not in self._cached_bias:
+            self._cached_bias[b] = torch.ones(
+                (b, 1),
                 dtype=torch.float32,
                 device=self.device,
             )
 
         for layer in self.hidden_layers:
-            x = torch.hstack((self._cached_bias, x))
+            x = torch.hstack((self._cached_bias[b].data, x))
 
             x = layer(x)
             x = self.activation(x)
 
-        x = torch.hstack((self._cached_bias, x))
+        x = torch.hstack((self._cached_bias[b], x))
 
         #  (([B x H] @  [H x (no_outputs * output_size)]) = [B x (no_outputs * output_size)]
         #  split -> output_size * [B x no_outputs]

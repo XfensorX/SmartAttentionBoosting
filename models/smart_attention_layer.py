@@ -1,5 +1,5 @@
 from copy import deepcopy
-from math import sqrt
+import math
 from typing import Literal
 
 import torch
@@ -36,13 +36,17 @@ class SmartAttentionLayer(torch.nn.Module):
         input_size: int,
         output_size: int,
         num_clients: int,
-        this_client_id: int,
+        this_client_id: int | None,
         prediction_network_architecture: list[int],
         input_importance_network_architecture: list[int],
         client_importance_network_architecture: list[int],
+        original_input_size: int | None = None,
         activation: ActivationFunction = torch.nn.functional.relu,
         device: torch.device = torch.device("cpu"),
     ):
+        if original_input_size is None:
+            original_input_size = input_size
+
         value_network = MultiOutputNet(
             hidden_layer_sizes=prediction_network_architecture,
             input_size=input_size,
@@ -55,7 +59,7 @@ class SmartAttentionLayer(torch.nn.Module):
 
         query_network = MultiOutputNet(
             hidden_layer_sizes=input_importance_network_architecture,
-            input_size=input_size,
+            input_size=original_input_size,
             output_size=output_size,
             no_of_outputs=num_clients,
             trained_output_no=this_client_id,
@@ -65,8 +69,8 @@ class SmartAttentionLayer(torch.nn.Module):
 
         key_network = MultiOutputNet(
             hidden_layer_sizes=client_importance_network_architecture,
-            input_size=output_size,  #! different
-            output_size=num_clients,  #! different
+            input_size=input_size,
+            output_size=num_clients,
             no_of_outputs=num_clients,
             trained_output_no=this_client_id,
             activation=activation,
@@ -131,13 +135,16 @@ class SmartAttentionLayer(torch.nn.Module):
     def forward(
         self,
         layer_input: torch.Tensor,
-        original_input: torch.Tensor,
+        original_input: torch.Tensor | None = None,
     ):
+        if original_input is None:
+            original_input = layer_input
+
         value = self.value_network(layer_input)  # outputs (B x O x C)
         query = self.query_network(original_input)  # outputs (B x O x C)
         key = self.key_network(layer_input)  # outputs (B x C x C)
 
-        scale_factor = 1 / sqrt(query.size(-1))
+        scale_factor = 1 / math.sqrt(self.query_network.output_size)
 
         importances = ((query @ key.transpose(-1, -2)) * scale_factor).softmax(dim=-1)
 

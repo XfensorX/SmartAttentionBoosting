@@ -43,7 +43,7 @@ def evaluate(
         inputs=y_hats,
         targets=ys,
         model_summary=get_model_summary(model),
-        model_parameter_count=summary(model).total_params,
+        model_parameter_count=summary(model, verbose=0).total_params,
     )
 
 

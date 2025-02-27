@@ -1,0 +1,12 @@
+network_type: basic_nn
+optimizer: adam
+learning_rate: 0.001
+loss_fn: bce_with_logits
+batch_norm: False
+layer_norm: False
+dropout_rate: 0.0
+client_epochs: 50
+num_clients: null
+communication_rounds: null
+client_data_distribution: null
+architecture: [512, 512, 512, 256, 128]

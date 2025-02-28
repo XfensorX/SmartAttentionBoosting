@@ -1,0 +1,20 @@
+network_type: fed_avg
+optimizer: adam
+learning_rate: 0.001
+loss_fn: bce_with_logits
+batch_norm: False
+layer_norm: False
+dropout_rate: 0.0
+client_epochs: 100
+num_clients: 5
+communication_rounds: 50
+client_data_distribution: interval
+architecture: [64, 64, 64, 32, 32]
+
+input_importance_network_architecture: null
+client_importance_network_architecture: null
+similarity_threshold_in_degree: null
+aligning_method: null
+add_noise_in_training: null
+boosting_rounds: null
+communication_rounds_training: null

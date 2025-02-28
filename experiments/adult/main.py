@@ -89,7 +89,16 @@ if __name__ == "__main__":
         required=True,
         help="Paths to one or more YAML configuration files",
     )
+    parser.add_argument(
+        "--device",
+        type=str,
+        required=False,
+        help="Device to use",
+    )
     args = parser.parse_args()
+
+    if args.device:
+        DEVICE = torch.device(args.device)
 
     for config_path in args.config:
         print(f"\n🔹 Running experiment with {config_path}...\n")

@@ -102,7 +102,11 @@ def train_smart_attention(
         # Aggregate global model
         global_model = SmartAttentionLayer.get_global_model(
             client_models,
-            config.similarity_threshold_in_degree if is_aligning_round else MAX_THETA,
+            (
+                config.similarity_threshold_in_degree
+                if not is_aligning_round
+                else MAX_THETA
+            ),
             method=config.aligning_method if is_aligning_round else "combine",
         )
 

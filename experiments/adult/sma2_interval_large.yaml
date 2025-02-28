@@ -1,0 +1,22 @@
+network_type: smart_attention
+optimizer: adam
+learning_rate: 0.001
+loss_fn: bce_with_logits
+client_epochs: 100
+num_clients: 5
+communication_rounds: 50
+communication_rounds_training: 38
+client_data_distribution: interval
+architecture: [50, 50, 50, 50, 50, 50, 50]
+input_importance_network_architecture:
+    [10, 10, 10, 10, 10, 10, 10, 10]
+client_importance_network_architecture:
+    [10, 10, 10, 10, 10, 10, 10, 10]
+similarity_threshold_in_degree: 60
+aligning_method: combine
+add_noise_in_training: True
+
+boosting_rounds: null
+dropout_rate: null
+batch_norm: null
+layer_norm: null

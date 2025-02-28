@@ -180,7 +180,7 @@ class MultiOutputNet(torch.nn.Module):
             )
 
         for layer in self.hidden_layers:
-            x = torch.hstack((self._cached_bias[b].data, x))
+            x = torch.hstack((self._cached_bias[b], x))
 
             x = layer(x)
             x = self.activation(x)

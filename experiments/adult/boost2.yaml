@@ -1,0 +1,20 @@
+network_type: attention_boosting
+optimizer: adam
+learning_rate: 0.001
+loss_fn: bce_with_logits
+batch_norm: False
+layer_norm: False
+dropout_rate: 0.0
+boosting_rounds: 10
+client_epochs: 100
+num_clients: 5
+communication_rounds: 20
+communication_rounds_training: 7
+client_data_distribution: random
+architecture: [16, 16, 16, 16, 16]
+input_importance_network_architecture: [16, 16, 16]
+client_importance_network_architecture: [16, 16, 16]
+
+similarity_threshold_in_degree: 60
+aligning_method: combine
+add_noise_in_training: True

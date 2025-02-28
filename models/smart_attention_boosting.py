@@ -21,6 +21,8 @@ class SmartAttentionBoosting(torch.nn.Module):
     ):
         super().__init__()
 
+        raise NotImplementedError("This model is not tested.")
+
         self.input_size = input_size
         self.output_size = output_size
         self.num_clients = num_clients

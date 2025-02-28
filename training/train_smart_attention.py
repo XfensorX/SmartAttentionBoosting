@@ -17,7 +17,7 @@ from training.general import (
 )
 from utils.general import get_logging_dir
 
-MAX_THETA = 181 
+MAX_THETA = 181
 
 
 def train_smart_attention(
@@ -59,12 +59,12 @@ def train_smart_attention(
     ):
         is_aligning_round = communication_round >= config.communication_rounds_training
 
-        client_models = {
-            client_id: global_model.get_client_model(
+        client_models = [
+            global_model.get_client_model(
                 client_id, config.add_noise_in_training and not is_aligning_round
             )
             for client_id in range(config.num_clients)
-        }
+        ]
         optimizers = {
             client_id: get_optimizer(
                 config.optimizer,
@@ -74,7 +74,7 @@ def train_smart_attention(
             for client_id in range(config.num_clients)
         }
 
-        for model in client_models.values():
+        for model in client_models:
             model.to(device)
 
         # Train clients
@@ -101,7 +101,7 @@ def train_smart_attention(
 
         # Aggregate global model
         global_model = SmartAttentionLayer.get_global_model(
-            list(client_models.values()),
+            client_models,
             config.similarity_threshold_in_degree if is_aligning_round else MAX_THETA,
             method=config.aligning_method if is_aligning_round else "combine",
         )

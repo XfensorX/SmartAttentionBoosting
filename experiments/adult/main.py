@@ -3,10 +3,13 @@ import argparse
 import torch
 
 import data.adult
-from training.train_basic_nn import train_basic_nn
-from training.train_fed_avg import train_fed_avg
-from training.train_smart_attention import train_smart_attention
-from utils.Config import Config
+from training import (
+    train_attention_boosting,
+    train_basic_nn,
+    train_fed_avg,
+    train_smart_attention,
+)
+from utils import Config
 
 BATCH_SIZE = 256
 DEVICE = torch.device("cpu")
@@ -61,7 +64,20 @@ def run_smart_attention_experiment(config: Config, model_name: str):
 
 
 def run_attention_boosting_experiment(config: Config, model_name: str):
-    raise NotImplementedError()
+    test_dataloader = torch.utils.data.DataLoader(
+        data.adult.get_dataset("test"), batch_size=BATCH_SIZE, shuffle=False
+    )
+    client_dataloaders = data.adult.get_client_train_dataloaders(
+        config.num_clients,
+        config.client_data_distribution,
+        BATCH_SIZE,
+        True,
+        sort_by="age",
+    )
+
+    train_attention_boosting(
+        config, test_dataloader, client_dataloaders, DEVICE, "adult", model_name
+    )
 
 
 if __name__ == "__main__":

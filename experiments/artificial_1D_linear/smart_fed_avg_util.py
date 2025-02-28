@@ -1,6 +1,7 @@
 from typing import Callable, Iterable, Tuple
 import torch
 import torch.utils.tensorboard
+from tqdm import tqdm
 from experiments.artificial_1D_linear.documentation import (
     evaluate,
     plot_predictions,
@@ -24,7 +25,9 @@ def train_client(
     client_model.train()
     optimizer = torch.optim.Adam(client_model.parameters(), lr=learning_rate)
 
-    for epoch in range(no_epochs):
+    for epoch in tqdm(
+        range(no_epochs), desc=f"Training client {client_no}", leave=False
+    ):
         losses: list[float] = []
         for x, y in data_loader:
             x, y = x.to(device), y.to(device)

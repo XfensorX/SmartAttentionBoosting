@@ -45,9 +45,9 @@ def train_fed_avg(
     for communication_round in tqdm(
         range(config.communication_rounds), desc="Communication Round"
     ):
-        client_models = {
-            client_id: deepcopy(global_model) for client_id in range(config.num_clients)
-        }
+        client_models = [
+            deepcopy(global_model) for client_id in range(config.num_clients)
+        ]
         optimizers = {
             client_id: get_optimizer(
                 config.optimizer,
@@ -57,7 +57,7 @@ def train_fed_avg(
             for client_id in range(config.num_clients)
         }
 
-        for m in client_models.values():
+        for m in client_models:
             m.to(device)
 
         for client_id in range(config.num_clients):
@@ -80,9 +80,7 @@ def train_fed_avg(
                     client_id,
                 )
 
-        global_model = utils.federated_learning.average_models(
-            list(client_models.values())
-        )
+        global_model = utils.federated_learning.average_models(client_models)
 
         register_test_loss(
             writer,

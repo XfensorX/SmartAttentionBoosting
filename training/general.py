@@ -1,10 +1,11 @@
+import json
 from typing import Callable, Literal, Tuple
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from torchinfo import summary
 
-from utils import Config
+import utils
 
 
 def train_one_epoch(
@@ -60,16 +61,18 @@ def final_evaluation(
     writer: SummaryWriter,
     model: torch.nn.Module,
     test_dataloader: torch.utils.data.DataLoader,
-    config: Config,
+    config: utils.Config,
 ):
     input_features, _ = get_feature_sizes(test_dataloader)
     metrics = utils.evaluation.evaluate(model, test_dataloader, from_logits=True)
     writer.add_hparams(dict(metrics), {}, run_name=".")
-    writer.add_text("hparams", json.dumps(config.model_dump(), indent=4))
+    writer.add_text(
+        "hparams", json.dumps(config.model_dump(exclude_none=True), indent=4)
+    )
     writer.add_text(
         "Model Summary", str(summary(model, input_size=(1, input_features), verbose=0))
     )
-    writer.add_graph(global_model, torch.randn(1, input_features))
+    writer.add_graph(model, torch.randn(1, input_features))
     writer.flush()
     writer.close()
 

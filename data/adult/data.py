@@ -4,32 +4,34 @@ import torch
 
 from utils.data import StandardScaler, split_dataset_into_subsets
 
+ADULT_HEADER = [
+    "age",
+    "workclass",
+    "fnlwgt",
+    "education",
+    "education-num",
+    "marital-status",
+    "occupation",
+    "relationship",
+    "race",
+    "sex",
+    "capital-gain",
+    "capital-loss",
+    "hours-per-week",
+    "native-country",
+    "earning",
+]
+
 
 def get_data(split: str):
     # TODO: Refactor
-    adult_header = [
-        "age",
-        "workclass",
-        "fnlwgt",
-        "education",
-        "education-num",
-        "marital-status",
-        "occupation",
-        "relationship",
-        "race",
-        "sex",
-        "capital-gain",
-        "capital-loss",
-        "hours-per-week",
-        "native-country",
-        "earning",
-    ]
+
     data = pd.read_csv(
-        "../../data/adult/adult.data", names=adult_header, index_col=False
+        "../../data/adult/adult.data", names=ADULT_HEADER, index_col=False
     )
     test_data = pd.read_csv(
         "../../data/adult/adult.test",
-        names=adult_header,
+        names=ADULT_HEADER,
         index_col=False,
         dtype=data.dtypes.to_dict(),
         header=0,
@@ -41,7 +43,7 @@ def get_data(split: str):
 
     assert all(data == data.dropna())
 
-    for header in adult_header:
+    for header in ADULT_HEADER:
         if data[header].dtype == "object":
             data[header] = data[header].str.strip()
 
@@ -49,7 +51,7 @@ def get_data(split: str):
     data["earning"] = data["earning"].str.replace(">50K.", ">50K")
 
     dummies = pd.get_dummies(data, prefix_sep="_")
-    assert set(adult_header) == set(
+    assert set(ADULT_HEADER) == set(
         [words[0] for words in dummies.columns.str.split("_")]
     )
     dummies["sex"] = dummies["sex_Male"].astype(int)
@@ -75,9 +77,19 @@ def get_data(split: str):
         raise ValueError("Split not found")
 
 
-def get_dataset(split: str, seed: int = 42) -> torch.utils.data.TensorDataset:
+def get_dataset(
+    split: str, seed: int = 42, sort_by: str | None = None
+) -> torch.utils.data.TensorDataset:
     torch.manual_seed(seed)
+    if split != "train" and sort_by is not None:
+        raise ValueError("Can only sort the training data.")
+
     X_raw, Y = get_data("train")
+    if sort_by is not None:
+        indices = torch.argsort(X_raw[:, ADULT_HEADER.index(sort_by)])
+        X_raw = X_raw[indices, :]
+        Y = Y[indices, :]
+
     X_test, Y_test = get_data("test")
 
     scaler = StandardScaler()
@@ -85,9 +97,7 @@ def get_dataset(split: str, seed: int = 42) -> torch.utils.data.TensorDataset:
 
     if split == "train":
         return torch.utils.data.TensorDataset(scaler.transform(X_raw), Y)
-
     elif split == "test":
-
         return torch.utils.data.TensorDataset(scaler.transform(X_test), Y_test)
 
     else:
@@ -100,12 +110,13 @@ def get_client_train_dataloaders(
     batch_size: int,
     shuffle: bool = False,
     seed: int = 42,
+    sort_by: str | None = None,
 ) -> dict[int, torch.utils.data.DataLoader[Tuple[torch.Tensor, ...]]]:
     """client_distribution:
     - 'random': randomly distributed onto clients
     - 'interval': input feature space is split into equally sized intervals
     """
-    dataset = get_dataset("train")
+    dataset = get_dataset("train", sort_by=sort_by)
 
     subsets = split_dataset_into_subsets(dataset, no_clients, client_distribution, seed)
 

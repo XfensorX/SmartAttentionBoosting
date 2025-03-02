@@ -1,6 +1,6 @@
 # Code base for "Smart Federated Averaging"
 
-This code base implements the 'Smart Federated Averaging' tehchinque, which can be used in combination with an adapted scaled-dot-product attention as "Smart Attention Layer", which can be stacked to form very effective "Smart Attention Boosting".
+This code base implements the 'Smart Federated Averaging' technique, which can be used in combination with an adapted scaled-dot-product attention as "Smart Attention Layer", which can be stacked to form very effective "Smart Attention Boosting".
 
 ### Install the package:
 

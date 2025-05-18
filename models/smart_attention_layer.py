@@ -144,7 +144,7 @@ class SmartAttentionLayer(torch.nn.Module):
         query = self.query_network(original_input)  # outputs (B x O x C)
         key = self.key_network(layer_input)  # outputs (B x C x C)
 
-        scale_factor = 1 / math.sqrt(self.query_network.output_size)
+        scale_factor = 1 / math.sqrt(self.query_network.config.output_size)
 
         importances = ((query @ key.transpose(-1, -2)) * scale_factor).softmax(dim=-1)
 

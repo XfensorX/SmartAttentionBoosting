@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from queue import Queue
-from re import I
 import torch
 from utils.self_learning import (
     combine_weights,
@@ -48,7 +47,6 @@ class SmartAveragingNet(torch.nn.Module):
 
         self.hidden_layers = self._get_initialized_hidden_layers()
         self.output_layers = self._get_initialized_output_layers()
-        self.output_scalings = self._get_initialized_output_scalings()
         self.set_training_on_output(trained_output_no)
 
         self._cached_bias = {}
@@ -93,20 +91,6 @@ class SmartAveragingNet(torch.nn.Module):
             ]
         )
 
-    def _get_initialized_output_scalings(self):
-        return torch.nn.ParameterList(
-            [
-                torch.nn.Parameter(
-                    torch.ones(
-                        (self.config.output_size,),
-                        dtype=torch.float32,
-                        device=self.config.device,
-                    )
-                )
-                for _ in range(self.config.no_of_outputs)
-            ]
-        )
-
     def set_training_on_output(self, output_no: int | None):
         if self.config.trained_output_no == output_no:
             return
@@ -120,13 +104,10 @@ class SmartAveragingNet(torch.nn.Module):
         self._setup_faster_output_calculations()
 
     def _setup_training_only_on_output_no(self):
-        for no_of_output_layer, (output_layer, output_scaling) in enumerate(
-            zip(self.output_layers, self.output_scalings)
-        ):
-            need_gradients = no_of_output_layer == self.config.trained_output_no
-
-            output_layer.weight.requires_grad = need_gradients
-            output_scaling.requires_grad = need_gradients
+        for no_of_output_layer, output_layer in enumerate(self.output_layers):
+            output_layer.weight.requires_grad = (
+                no_of_output_layer == self.config.trained_output_no
+            )
 
         with torch.no_grad():
             if self.config.trained_output_no is None:
@@ -148,32 +129,6 @@ class SmartAveragingNet(torch.nn.Module):
             ).to(device=self.config.device),
             requires_grad=False,
         )
-
-        self._untrained_output_scaling = torch.nn.Parameter(
-            torch.stack(
-                [
-                    (
-                        scaling
-                        if output_no != self.config.trained_output_no
-                        else torch.zeros_like(scaling.data)
-                    )
-                    for output_no, scaling in enumerate(self.output_scalings)
-                ],
-            ).to(device=self.config.device),
-            requires_grad=False,
-        )
-
-    def set_new_output_scalings(self, scaling_mapping: dict[int, torch.Tensor]):
-        """
-        scaling_mapping: a mapping from the no. of output to the new scaling vector
-        """
-
-        for output_no, new_scaling in scaling_mapping.items():
-            assert new_scaling.shape == self.output_scalings[output_no].shape
-
-            self.output_scalings[output_no] = torch.nn.Parameter(new_scaling.float())
-
-        self._setup_faster_output_calculations()
 
     def set_new_output_weights(self, weights_mapping: dict[int, torch.Tensor]):
         """
@@ -212,25 +167,15 @@ class SmartAveragingNet(torch.nn.Module):
         #  stack -> [B x no_outputs x output_size]
         # * [no_outputs x output_size])
 
-        out = (
-            torch.stack(
-                (x @ self._untrained_output_layer.T).split(
-                    self.config.output_size, dim=-1
-                ),
-                dim=-2,
-            )
-            * self._untrained_output_scaling
+        out = torch.stack(
+            (x @ self._untrained_output_layer.T).split(self.config.output_size, dim=-1),
+            dim=-2,
         )
         # -> [B x output_size]
         if self.config.trained_output_no is not None:
-            trained_output = (
-                self.output_layers[self.config.trained_output_no](x)
-                * self.output_scalings[self.config.trained_output_no]
-            )
+            trained_output = self.output_layers[self.config.trained_output_no](x)
             out[:, self.config.trained_output_no, :] = trained_output
-
         out = out.transpose(-1, -2)
-
         return out
 
     def append_hidden_layer(
@@ -255,7 +200,6 @@ class SmartAveragingNet(torch.nn.Module):
 
         if not postpone_output_layer_update:
             self.output_layers = self._get_initialized_output_layers()
-            self.output_scalings = self._get_initialized_output_scalings()
             self.set_training_on_output(self.config.trained_output_no)
 
     def get_trained_output_weights(self):
@@ -263,12 +207,6 @@ class SmartAveragingNet(torch.nn.Module):
             return self._untrained_output_layer
 
         return self.output_layers[self.config.trained_output_no].weight.data
-
-    def get_trained_output_scalings(self):
-        if self.config.trained_output_no is None:
-            return self._untrained_output_scaling
-
-        return self.output_scalings[self.config.trained_output_no].data
 
     def get_hidden_weights(self, layer: int):
         return self.hidden_layers[layer].weight.data
@@ -287,69 +225,47 @@ class SmartAveragingNet(torch.nn.Module):
         if layer_no > self.num_hidden_layers:
             raise ValueError("Layer too large. Not applicable")
 
+        if self._is_output_layer(layer_no):
+            raise ValueError("Last Layer cannot be normalized")
+
         if self.config.trained_output_no is None:
             raise NotImplementedError("Not important. May not be used.")
 
-        weights = (
-            self.get_trained_output_weights()
-            if self._is_output_layer(layer_no)
-            else self.get_hidden_weights(layer_no)
-        )
-
+        weights = self.get_hidden_weights(layer_no)
         norms = weights.norm(p=2, dim=1)
-
         normed_weights = weights / norms.view(-1, 1)
 
-        if self._is_output_layer(layer_no):
-            self.set_new_output_weights({self.config.trained_output_no: normed_weights})
-        else:
-            self.set_hidden_weights(layer_no, normed_weights)
+        self.set_hidden_weights(layer_no, normed_weights)
 
-        if self._is_output_layer(layer_no):
-            self.set_new_output_scalings(
-                {
-                    self.config.trained_output_no: (
-                        norms * self.get_trained_output_scalings()
-                    )
-                }
+        scaling = torch.cat(
+            (torch.tensor([1], device=self.config.device), norms.to(self.config.device))
+        )
+        if not self._is_output_layer(layer_no + 1):
+            self.set_hidden_weights(
+                layer_no + 1,
+                self.get_hidden_weights(layer_no + 1) * scaling,
             )
-        elif self._is_output_layer(layer_no + 1):
+
+        else:
             self.set_new_output_weights(
                 {
                     self.config.trained_output_no: (
-                        self.get_trained_output_weights()
-                        * torch.cat(
-                            (
-                                torch.tensor([1], device=self.config.device),
-                                norms.to(self.config.device),
-                            )
-                        )
+                        self.get_trained_output_weights() * scaling
                     )
                 }
             )
-        else:
-            self.set_hidden_weights(
-                layer_no + 1,
-                self.get_hidden_weights(layer_no + 1)
-                * torch.cat(
-                    (
-                        torch.tensor([1], device=self.config.device),
-                        norms.to(self.config.device),
-                    )
-                ),
-            )
 
     def normalize(self):
-        for layer in range(self.num_hidden_layers + 1):
+        for layer in range(self.num_hidden_layers):
             self.normalize_layer(layer)
 
-    def add_noise(self, everywhere: bool = False):
+    def add_noise(self, also_on_non_zero_weights: bool = False):
         for layer in range(self.num_hidden_layers):
             weights = self.get_hidden_weights(layer)
             noise = (
                 torch.randn_like(weights) / (weights.shape[0] + weights.shape[1]) * 2
             )
-            if everywhere:
+            if also_on_non_zero_weights:
                 weights += noise
             else:
                 weights = torch.where(weights == 0.0, noise, weights)
@@ -364,13 +280,9 @@ class SmartAveragingNet(torch.nn.Module):
             result.append(f"Layer {i} Weights:")
             result.append(str(layer.weight.detach().cpu().numpy()))
 
-        for i, (layer, scaling) in enumerate(
-            zip(self.output_layers, self.output_scalings)
-        ):
+        for i, layer in enumerate(self.output_layers):
             result.append(f"Output Layer {i} Weights:")
             result.append(str(layer.weight.detach().cpu().numpy()))
-            result.append("With scaling: ")
-            result.append(str(scaling.detach().cpu().numpy()))
         return "\n".join(result)
 
     @staticmethod
@@ -490,11 +402,6 @@ class SmartAveragingNet(torch.nn.Module):
             net_no: all_output_weights[net_no, :, :] for net_no in range(len(nets))
         }
 
-        new_output_scalings = {
-            net_no: net.get_trained_output_scalings() for net_no, net in enumerate(nets)
-        }
-
-        netC.set_new_output_scalings(new_output_scalings)
         netC.set_new_output_weights(new_output_weights)
         return netC
 
@@ -530,10 +437,5 @@ class SmartAveragingNet(torch.nn.Module):
             net_no: net.get_trained_output_weights() for net_no, net in enumerate(nets)
         }
 
-        new_output_scalings = {
-            net_no: net.get_trained_output_scalings() for net_no, net in enumerate(nets)
-        }
-
-        netC.set_new_output_scalings(new_output_scalings)
         netC.set_new_output_weights(new_output_weights)
         return netC

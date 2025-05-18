@@ -69,7 +69,6 @@ def test_gradients_of_additional_outputs_do_not_change(
         layers, input_size, output_size, no_outputs, trained_output_no
     )
 
-    trained_output_scaling_before = deepcopy(n.output_scalings[trained_output_no].data)
     trained_last_layer_before = deepcopy(n.output_layers[trained_output_no].weight.data)
     if no_outputs > 1:
 
@@ -77,15 +76,6 @@ def test_gradients_of_additional_outputs_do_not_change(
             torch.stack(
                 [
                     n.output_layers[no].weight.data
-                    for no in range(no_outputs)
-                    if no != trained_output_no
-                ]
-            )
-        )
-        other_outputs_scaling_before = deepcopy(
-            torch.stack(
-                [
-                    n.output_scalings[no].data
                     for no in range(no_outputs)
                     if no != trained_output_no
                 ]
@@ -117,20 +107,7 @@ def test_gradients_of_additional_outputs_do_not_change(
                 ]
             ),
         )
-        assert torch.allclose(
-            other_outputs_scaling_before,
-            torch.stack(
-                [
-                    n.output_scalings[no].data
-                    for no in range(no_outputs)
-                    if no != trained_output_no
-                ]
-            ),
-        )
 
-    assert not torch.allclose(
-        trained_output_scaling_before, n.output_scalings[trained_output_no].data
-    )
     assert not torch.allclose(
         trained_last_layer_before, n.output_layers[trained_output_no].weight.data
     )
@@ -204,9 +181,6 @@ def test_average_of_one_net_is_same():
     all_outputs_last_layers_before = deepcopy(
         torch.stack([nets[0].output_layers[no].weight.data for no in range(outputs)])
     )
-    all_outputs_scaling_before = deepcopy(
-        torch.stack([nets[0].output_scalings[no].data for no in range(outputs)])
-    )
 
     all_hidden_layers_before = deepcopy(
         list(nets[0].get_hidden_weights(i) for i in range(nets[0].num_hidden_layers))
@@ -218,10 +192,7 @@ def test_average_of_one_net_is_same():
         torch.stack([n.output_layers[no].weight.data for no in range(outputs)]),
         all_outputs_last_layers_before,
     )
-    assert torch.allclose(
-        torch.stack([n.output_scalings[no].data for no in range(outputs)]),
-        all_outputs_scaling_before,
-    )
+
     assert n.num_hidden_layers == 4
     for i in range(n.num_hidden_layers):
         assert torch.allclose(n.get_hidden_weights(i), all_hidden_layers_before[i])

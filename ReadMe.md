@@ -1,6 +1,11 @@
+> ⚠️ **Note:** 
+> Pressure makes diamonds, but it doesn’t always make perfectly structured code.
+> A full refactoring is still on the to-do list—please note that this project doesn’t reflect my views on coding standards.
+
+---
 # Code base for "Smart Federated Averaging"
 
-This code base implements the 'Smart Federated Averaging' tehchinque, which can be used in combination with an adapted scaled-dot-product attention as "Smart Attention Layer", which can be stacked to form very effective "Smart Attention Boosting".
+This code base implements the 'Smart Federated Averaging' technique, which can be used in combination with an adapted scaled-dot-product attention as "Smart Attention Layer", which can be stacked to form very effective "Smart Attention Boosting".
 
 ### Install the package:
 

@@ -1,4 +1,6 @@
+from dataclasses import dataclass
 from queue import Queue
+from re import I
 import torch
 from utils.self_learning import (
     combine_weights,
@@ -7,7 +9,17 @@ from utils.self_learning import (
 from utils.types import ActivationFunction
 
 
-class MultiOutputNet(torch.nn.Module):
+@dataclass
+class SmartAveragingNetConfig:
+    hidden_layer_sizes: list[int]
+    input_size: int
+    output_size: int
+    no_of_outputs: int
+    device: torch.device
+    trained_output_no: int | None
+
+
+class SmartAveragingNet(torch.nn.Module):
     def __init__(
         self,
         hidden_layer_sizes: list[int],
@@ -23,13 +35,16 @@ class MultiOutputNet(torch.nn.Module):
         if no_of_outputs < 1:
             raise ValueError("At least one output is needed")
 
-        self._hidden_layer_sizes = hidden_layer_sizes
-        self.input_size = input_size
-        self.output_size = output_size
-        self.no_of_outputs = no_of_outputs
-        self.trained_output_no = -1  # as otherwise updating will not trigger
+        self.config = SmartAveragingNetConfig(
+            hidden_layer_sizes=hidden_layer_sizes,
+            input_size=input_size,
+            output_size=output_size,
+            no_of_outputs=no_of_outputs,
+            device=device,
+            trained_output_no=-1,  # as otherwise updating will not trigger
+        )
+
         self.activation = activation
-        self.device = device
 
         self.hidden_layers = self._get_initialized_hidden_layers()
         self.output_layers = self._get_initialized_output_layers()
@@ -39,18 +54,21 @@ class MultiOutputNet(torch.nn.Module):
         self._cached_bias = {}
 
     def _get_initialized_hidden_layers(self):
-        if not self._hidden_layer_sizes:
+        if not self.config.hidden_layer_sizes:
             return torch.nn.ModuleList([])
 
         bias_node = 1  # for overview and understanding
-        incoming_nodes = [self.input_size] + self._hidden_layer_sizes[:-1]
-        outgoing_nodes = self._hidden_layer_sizes
+        incoming_nodes = [self.config.input_size] + self.config.hidden_layer_sizes[:-1]
+        outgoing_nodes = self.config.hidden_layer_sizes
 
         return torch.nn.ModuleList(
             [
                 # +1 -> adding bias as additional weight
                 torch.nn.Linear(
-                    incoming + bias_node, outgoing, bias=False, device=self.device
+                    incoming + bias_node,
+                    outgoing,
+                    bias=False,
+                    device=self.config.device,
                 )
                 for incoming, outgoing in zip(incoming_nodes, outgoing_nodes)
             ]
@@ -62,16 +80,16 @@ class MultiOutputNet(torch.nn.Module):
             [
                 torch.nn.Linear(
                     (
-                        self._hidden_layer_sizes[-1]
-                        if self._hidden_layer_sizes
-                        else self.input_size
+                        self.config.hidden_layer_sizes[-1]
+                        if self.config.hidden_layer_sizes
+                        else self.config.input_size
                     )
                     + bias_node,
-                    self.output_size,
-                    device=self.device,
+                    self.config.output_size,
+                    device=self.config.device,
                     bias=False,
                 )
-                for _ in range(self.no_of_outputs)
+                for _ in range(self.config.no_of_outputs)
             ]
         )
 
@@ -80,22 +98,24 @@ class MultiOutputNet(torch.nn.Module):
             [
                 torch.nn.Parameter(
                     torch.ones(
-                        (self.output_size,), dtype=torch.float32, device=self.device
+                        (self.config.output_size,),
+                        dtype=torch.float32,
+                        device=self.config.device,
                     )
                 )
-                for _ in range(self.no_of_outputs)
+                for _ in range(self.config.no_of_outputs)
             ]
         )
 
     def set_training_on_output(self, output_no: int | None):
-        if self.trained_output_no == output_no:
+        if self.config.trained_output_no == output_no:
             return
-        if (output_no is not None) and output_no >= self.no_of_outputs:
+        if (output_no is not None) and output_no >= self.config.no_of_outputs:
             raise ValueError(
-                f"Can only train outputs with index 0 to {self.no_of_outputs - 1}"
+                f"Can only train outputs with index 0 to {self.config.no_of_outputs - 1}"
             )
 
-        self.trained_output_no = output_no
+        self.config.trained_output_no = output_no
         self._setup_training_only_on_output_no()
         self._setup_faster_output_calculations()
 
@@ -103,13 +123,13 @@ class MultiOutputNet(torch.nn.Module):
         for no_of_output_layer, (output_layer, output_scaling) in enumerate(
             zip(self.output_layers, self.output_scalings)
         ):
-            need_gradients = no_of_output_layer == self.trained_output_no
+            need_gradients = no_of_output_layer == self.config.trained_output_no
 
             output_layer.weight.requires_grad = need_gradients
             output_scaling.requires_grad = need_gradients
 
         with torch.no_grad():
-            if self.trained_output_no is None:
+            if self.config.trained_output_no is None:
                 for parameter in self.parameters():
                     parameter.requires_grad = False
 
@@ -120,12 +140,12 @@ class MultiOutputNet(torch.nn.Module):
                 [
                     (
                         layer.weight.data
-                        if output_no != self.trained_output_no
+                        if output_no != self.config.trained_output_no
                         else torch.zeros_like(layer.weight.data)
                     )
                     for output_no, layer in enumerate(self.output_layers)
                 ]
-            ).to(device=self.device),
+            ).to(device=self.config.device),
             requires_grad=False,
         )
 
@@ -134,12 +154,12 @@ class MultiOutputNet(torch.nn.Module):
                 [
                     (
                         scaling
-                        if output_no != self.trained_output_no
+                        if output_no != self.config.trained_output_no
                         else torch.zeros_like(scaling.data)
                     )
                     for output_no, scaling in enumerate(self.output_scalings)
                 ],
-            ).to(device=self.device),
+            ).to(device=self.config.device),
             requires_grad=False,
         )
 
@@ -168,7 +188,7 @@ class MultiOutputNet(torch.nn.Module):
 
     @property
     def num_hidden_layers(self):
-        return len(self._hidden_layer_sizes)
+        return len(self.config.hidden_layer_sizes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         b = x.shape[0]  # batch_size
@@ -176,7 +196,7 @@ class MultiOutputNet(torch.nn.Module):
             self._cached_bias[b] = torch.ones(
                 (b, 1),
                 dtype=torch.float32,
-                device=self.device,
+                device=self.config.device,
             )
 
         for layer in self.hidden_layers:
@@ -194,18 +214,20 @@ class MultiOutputNet(torch.nn.Module):
 
         out = (
             torch.stack(
-                (x @ self._untrained_output_layer.T).split(self.output_size, dim=-1),
+                (x @ self._untrained_output_layer.T).split(
+                    self.config.output_size, dim=-1
+                ),
                 dim=-2,
             )
             * self._untrained_output_scaling
         )
         # -> [B x output_size]
-        if self.trained_output_no is not None:
+        if self.config.trained_output_no is not None:
             trained_output = (
-                self.output_layers[self.trained_output_no](x)
-                * self.output_scalings[self.trained_output_no]
+                self.output_layers[self.config.trained_output_no](x)
+                * self.output_scalings[self.config.trained_output_no]
             )
-            out[:, self.trained_output_no, :] = trained_output
+            out[:, self.config.trained_output_no, :] = trained_output
 
         out = out.transpose(-1, -2)
 
@@ -215,11 +237,11 @@ class MultiOutputNet(torch.nn.Module):
         self, nodes: int, postpone_output_layer_update: bool = False
     ):
         last_hidden_layer_output_size_before = (
-            self._hidden_layer_sizes[-1]
-            if self._hidden_layer_sizes
-            else self.input_size
+            self.config.hidden_layer_sizes[-1]
+            if self.config.hidden_layer_sizes
+            else self.config.input_size
         )
-        self._hidden_layer_sizes = self._hidden_layer_sizes + [nodes]
+        self.config.hidden_layer_sizes = self.config.hidden_layer_sizes + [nodes]
 
         self.hidden_layers.append(
             torch.nn.Linear(
@@ -227,26 +249,26 @@ class MultiOutputNet(torch.nn.Module):
                 last_hidden_layer_output_size_before + 1,
                 nodes,
                 bias=False,
-                device=self.device,
+                device=self.config.device,
             )
         )
 
         if not postpone_output_layer_update:
             self.output_layers = self._get_initialized_output_layers()
             self.output_scalings = self._get_initialized_output_scalings()
-            self.set_training_on_output(self.trained_output_no)
+            self.set_training_on_output(self.config.trained_output_no)
 
     def get_trained_output_weights(self):
-        if self.trained_output_no is None:
+        if self.config.trained_output_no is None:
             return self._untrained_output_layer
 
-        return self.output_layers[self.trained_output_no].weight.data
+        return self.output_layers[self.config.trained_output_no].weight.data
 
     def get_trained_output_scalings(self):
-        if self.trained_output_no is None:
+        if self.config.trained_output_no is None:
             return self._untrained_output_scaling
 
-        return self.output_scalings[self.trained_output_no].data
+        return self.output_scalings[self.config.trained_output_no].data
 
     def get_hidden_weights(self, layer: int):
         return self.hidden_layers[layer].weight.data
@@ -265,7 +287,7 @@ class MultiOutputNet(torch.nn.Module):
         if layer_no > self.num_hidden_layers:
             raise ValueError("Layer too large. Not applicable")
 
-        if self.trained_output_no is None:
+        if self.config.trained_output_no is None:
             raise NotImplementedError("Not important. May not be used.")
 
         weights = (
@@ -279,23 +301,27 @@ class MultiOutputNet(torch.nn.Module):
         normed_weights = weights / norms.view(-1, 1)
 
         if self._is_output_layer(layer_no):
-            self.set_new_output_weights({self.trained_output_no: normed_weights})
+            self.set_new_output_weights({self.config.trained_output_no: normed_weights})
         else:
             self.set_hidden_weights(layer_no, normed_weights)
 
         if self._is_output_layer(layer_no):
             self.set_new_output_scalings(
-                {self.trained_output_no: (norms * self.get_trained_output_scalings())}
+                {
+                    self.config.trained_output_no: (
+                        norms * self.get_trained_output_scalings()
+                    )
+                }
             )
         elif self._is_output_layer(layer_no + 1):
             self.set_new_output_weights(
                 {
-                    self.trained_output_no: (
+                    self.config.trained_output_no: (
                         self.get_trained_output_weights()
                         * torch.cat(
                             (
-                                torch.tensor([1], device=self.device),
-                                norms.to(self.device),
+                                torch.tensor([1], device=self.config.device),
+                                norms.to(self.config.device),
                             )
                         )
                     )
@@ -306,7 +332,10 @@ class MultiOutputNet(torch.nn.Module):
                 layer_no + 1,
                 self.get_hidden_weights(layer_no + 1)
                 * torch.cat(
-                    (torch.tensor([1], device=self.device), norms.to(self.device))
+                    (
+                        torch.tensor([1], device=self.config.device),
+                        norms.to(self.config.device),
+                    )
                 ),
             )
 
@@ -329,7 +358,7 @@ class MultiOutputNet(torch.nn.Module):
 
     def full_representation(self):
         result = [
-            f"SelfLearningNet Weights: (training on output {self.trained_output_no})"
+            f"SelfLearningNet Weights: (training on output {self.config.trained_output_no})"
         ]
         for i, layer in enumerate(self.hidden_layers):
             result.append(f"Layer {i} Weights:")
@@ -345,15 +374,15 @@ class MultiOutputNet(torch.nn.Module):
         return "\n".join(result)
 
     @staticmethod
-    def are_combinable(nets: list["MultiOutputNet"]):
+    def are_combinable(nets: list["SmartAveragingNet"]):
         if len(nets) < 2:
             return True
         net1 = nets[0]
         return all(
             (
                 net1.num_hidden_layers == net2.num_hidden_layers
-                and net1.input_size == net2.input_size
-                and net1.output_size == net2.output_size
+                and net1.config.input_size == net2.config.input_size
+                and net1.config.output_size == net2.config.output_size
                 and isinstance(net1.activation, type(net2.activation))
             )
             for net2 in nets[1:]
@@ -361,10 +390,10 @@ class MultiOutputNet(torch.nn.Module):
 
     @staticmethod
     def combine(
-        nets: list["MultiOutputNet"],
+        nets: list["SmartAveragingNet"],
         similarity_threshold_in_degree: float = 45,
         seed: int | None = None,
-    ) -> "MultiOutputNet":
+    ) -> "SmartAveragingNet":
         if seed:
             torch.manual_seed(seed)
 
@@ -373,20 +402,20 @@ class MultiOutputNet(torch.nn.Module):
         if total_nets < 2:
             raise ValueError(f"Only provided {total_nets} nets. Cannot combine.")
 
-        assert MultiOutputNet.are_combinable(nets)
-        input_size = nets[0].input_size
-        output_size = nets[0].output_size
+        assert SmartAveragingNet.are_combinable(nets)
+        input_size = nets[0].config.input_size
+        output_size = nets[0].config.output_size
         activation = nets[0].activation
-        intermediate_output_sizes = nets[0]._hidden_layer_sizes
+        intermediate_output_sizes = nets[0].config.hidden_layer_sizes
 
-        netC = MultiOutputNet(
+        netC = SmartAveragingNet(
             [],
             input_size,
             output_size,
             no_of_outputs=len(nets),
             trained_output_no=None,
             activation=activation,
-            device=nets[0].device,
+            device=nets[0].config.device,
         )
 
         for net in nets:
@@ -471,23 +500,22 @@ class MultiOutputNet(torch.nn.Module):
 
     @staticmethod
     def average(
-        nets: list["MultiOutputNet"],
+        nets: list["SmartAveragingNet"],
         seed: int | None = None,
-    ) -> "MultiOutputNet":
+    ) -> "SmartAveragingNet":
         if seed:
             torch.manual_seed(seed)
 
-        assert MultiOutputNet.are_combinable(nets)
-        input_size = nets[0].input_size
+        assert SmartAveragingNet.are_combinable(nets)
 
-        netC = MultiOutputNet(
-            nets[0]._hidden_layer_sizes,
-            input_size,
-            nets[0].output_size,
+        netC = SmartAveragingNet(
+            nets[0].config.hidden_layer_sizes,
+            nets[0].config.input_size,
+            nets[0].config.output_size,
             no_of_outputs=len(nets),
             trained_output_no=None,
             activation=nets[0].activation,
-            device=nets[0].device,
+            device=nets[0].config.device,
         )
 
         for layer in range(nets[0].num_hidden_layers):

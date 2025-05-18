@@ -4,16 +4,16 @@ from typing import Literal
 
 import torch
 
-from models import MultiOutputNet
+from models import SmartAveragingNet
 from utils.types import ActivationFunction
 
 
 class SmartAttentionLayer(torch.nn.Module):
     def __init__(
         self,
-        value_network: MultiOutputNet,
-        query_network: MultiOutputNet,
-        key_network: MultiOutputNet,
+        value_network: SmartAveragingNet,
+        query_network: SmartAveragingNet,
+        key_network: SmartAveragingNet,
         device: torch.device = torch.device("cpu"),
     ):
 
@@ -47,7 +47,7 @@ class SmartAttentionLayer(torch.nn.Module):
         if original_input_size is None:
             original_input_size = input_size
 
-        value_network = MultiOutputNet(
+        value_network = SmartAveragingNet(
             hidden_layer_sizes=prediction_network_architecture,
             input_size=input_size,
             output_size=output_size,
@@ -57,7 +57,7 @@ class SmartAttentionLayer(torch.nn.Module):
             device=device,
         )
 
-        query_network = MultiOutputNet(
+        query_network = SmartAveragingNet(
             hidden_layer_sizes=input_importance_network_architecture,
             input_size=original_input_size,
             output_size=output_size,
@@ -67,7 +67,7 @@ class SmartAttentionLayer(torch.nn.Module):
             device=device,
         )
 
-        key_network = MultiOutputNet(
+        key_network = SmartAveragingNet(
             hidden_layer_sizes=client_importance_network_architecture,
             input_size=input_size,
             output_size=num_clients,
@@ -105,26 +105,26 @@ class SmartAttentionLayer(torch.nn.Module):
         method: Literal["combine", "average"],
     ):
         if method == "combine":
-            new_query_network = MultiOutputNet.combine(
+            new_query_network = SmartAveragingNet.combine(
                 [model.query_network for model in client_models],
                 similarity_threshold_in_degree=similarity_threshold_in_degree,
             )
-            new_value_network = MultiOutputNet.combine(
+            new_value_network = SmartAveragingNet.combine(
                 [model.value_network for model in client_models],
                 similarity_threshold_in_degree=similarity_threshold_in_degree,
             )
-            new_key_network = MultiOutputNet.combine(
+            new_key_network = SmartAveragingNet.combine(
                 [model.key_network for model in client_models],
                 similarity_threshold_in_degree=similarity_threshold_in_degree,
             )
         elif method == "average":
-            new_query_network = MultiOutputNet.average(
+            new_query_network = SmartAveragingNet.average(
                 [model.query_network for model in client_models]
             )
-            new_value_network = MultiOutputNet.average(
+            new_value_network = SmartAveragingNet.average(
                 [model.value_network for model in client_models]
             )
-            new_key_network = MultiOutputNet.average(
+            new_key_network = SmartAveragingNet.average(
                 [model.key_network for model in client_models]
             )
         else:

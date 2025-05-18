@@ -1,5 +1,5 @@
 from copy import deepcopy
-from models.multi_output_net import MultiOutputNet
+from models.smart_averaging_net import SmartAveragingNet
 
 
 import torch
@@ -8,13 +8,16 @@ import torch
 class SmartAverageLayer(torch.nn.Module):
     def __init__(
         self,
-        prediction_network: MultiOutputNet,
+        prediction_network: SmartAveragingNet,
     ):
         super().__init__()
         self.prediction_network = prediction_network
         self.prediction_mask = torch.full(
-            (prediction_network.output_size, prediction_network.no_of_outputs),
-            1 / prediction_network.no_of_outputs,
+            (
+                prediction_network.config.output_size,
+                prediction_network.config.no_of_outputs,
+            ),
+            1 / prediction_network.config.no_of_outputs,
         )
 
     @classmethod
@@ -27,7 +30,7 @@ class SmartAverageLayer(torch.nn.Module):
         prediction_network_architecture: list[int],
         activation=torch.nn.functional.relu,
     ):
-        prediction_network = MultiOutputNet(
+        prediction_network = SmartAveragingNet(
             hidden_layer_sizes=prediction_network_architecture,
             input_size=input_size,
             output_size=output_size,
@@ -62,7 +65,7 @@ class SmartAverageLayer(torch.nn.Module):
         client_models: list["SmartAverageLayer"],
         similarity_threshold_in_degree: float,
     ):
-        new_prediction_network = MultiOutputNet.combine(
+        new_prediction_network = SmartAveragingNet.combine(
             [model.prediction_network for model in client_models],
             similarity_threshold_in_degree=similarity_threshold_in_degree,
         )

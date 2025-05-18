@@ -3,7 +3,7 @@ import pytest
 from copy import deepcopy
 import torch
 
-from models import MultiOutputNet
+from models import SmartAveragingNet
 
 test_configs = [
     ([3, 6, 2], 1, 5, 3, 1, 45),
@@ -23,7 +23,7 @@ def test_network_consistency(
     layers, input_size, output_size, no_of_outputs, trained_output_number, batch_size
 ):
     """Tests that the network produces the same output before and after normalization."""
-    n = MultiOutputNet(
+    n = SmartAveragingNet(
         layers, input_size, output_size, no_of_outputs, trained_output_number
     )
     i = torch.rand(batch_size, input_size)
@@ -65,7 +65,9 @@ def test_gradients_of_additional_outputs_do_not_change(
 ):
 
     torch.manual_seed(42)
-    n = MultiOutputNet(layers, input_size, output_size, no_outputs, trained_output_no)
+    n = SmartAveragingNet(
+        layers, input_size, output_size, no_outputs, trained_output_no
+    )
 
     trained_output_scaling_before = deepcopy(n.output_scalings[trained_output_no].data)
     trained_last_layer_before = deepcopy(n.output_layers[trained_output_no].weight.data)
@@ -154,7 +156,7 @@ def test_combination_leaves_result_and_nets(
     torch.manual_seed(42)
 
     nets = [
-        MultiOutputNet(
+        SmartAveragingNet(
             layers, input_size, output_size, no_of_outputs, trained_output_number
         )
         for _ in range(no_of_outputs)
@@ -163,7 +165,7 @@ def test_combination_leaves_result_and_nets(
     sample = torch.randn((batch_size, input_size))
     individual_results = torch.stack([net(sample) for net in nets])  # C x (B x O x C)
 
-    combined_net = MultiOutputNet.combine(
+    combined_net = SmartAveragingNet.combine(
         nets, similarity_threshold_in_degree=0, seed=42
     )
 
@@ -171,7 +173,7 @@ def test_combination_leaves_result_and_nets(
 
     torch.manual_seed(42)
     nets_new = [
-        MultiOutputNet(layers, input_size, output_size, no_of_outputs)
+        SmartAveragingNet(layers, input_size, output_size, no_of_outputs)
         for _ in range(no_of_outputs)
     ]
 
@@ -197,7 +199,7 @@ def test_average_of_one_net_is_same():
     nets = []
     for i in range(outputs):
         torch.manual_seed(42)
-        nets.append(MultiOutputNet([1234, 1, 54, 345], inputs, 5, outputs, i))
+        nets.append(SmartAveragingNet([1234, 1, 54, 345], inputs, 5, outputs, i))
 
     all_outputs_last_layers_before = deepcopy(
         torch.stack([nets[0].output_layers[no].weight.data for no in range(outputs)])
@@ -210,7 +212,7 @@ def test_average_of_one_net_is_same():
         list(nets[0].get_hidden_weights(i) for i in range(nets[0].num_hidden_layers))
     )
 
-    n = MultiOutputNet.average(nets, seed=30)
+    n = SmartAveragingNet.average(nets, seed=30)
 
     assert torch.allclose(
         torch.stack([n.output_layers[no].weight.data for no in range(outputs)]),
@@ -226,10 +228,10 @@ def test_average_of_one_net_is_same():
 
 
 def test_all_layers_are_off():
-    n = MultiOutputNet([1234, 1, 54, 345], 5, 5, 123, 0)
+    n = SmartAveragingNet([1234, 1, 54, 345], 5, 5, 123, 0)
     n.set_training_on_output(None)
 
     assert all([not param.requires_grad for param in n.parameters()])
 
-    n = MultiOutputNet([1234, 1, 54, 345], 5, 5, 123, None)
+    n = SmartAveragingNet([1234, 1, 54, 345], 5, 5, 123, None)
     assert all([not param.requires_grad for param in n.parameters()])

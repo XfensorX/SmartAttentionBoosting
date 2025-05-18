@@ -5,6 +5,8 @@ import torch
 def get_degree_similarities(
     weights_a: torch.Tensor,  # (A1 x A2)
     weights_b: torch.Tensor,  # (B1 x B2) -> A1 x B1
+    bias_a: torch.Tensor,
+    bias_b: torch.Tensor,
     added_zeros_per_row: int,
     maximum_accepted_matching_degree: float,
 ) -> torch.Tensor:
@@ -13,7 +15,9 @@ def get_degree_similarities(
 
     If the angle is greated than the similarity threshold, it is set to 181 degrees.
     """
-    similarities = weights_a @ weights_b.transpose(0, 1)
+    similarities = (weights_a @ weights_b.transpose(0, 1)) + (
+        bias_a.reshape(-1, 1) @ bias_b.reshape(1, -1)
+    )
     assert not (torch.any(similarities > 1.0001) or torch.any(similarities < -1.0001))
 
     degree_similarities = similarities.clamp(-1.0, 1.0).arccos().rad2deg()
@@ -122,40 +126,31 @@ def get_new_idx_permutation(
     return new_locations
 
 
-def switch_weights_like_previous_layer(
-    weights: list[torch.Tensor],
+def switch_params_like_previous_layer(
+    params: list[tuple[torch.Tensor, torch.Tensor]],
     weight_permutations: dict[int, torch.Tensor],
     this_layer_output_size: int,
     last_output_size: int,
-) -> torch.Tensor:
-    device = weights[0].device
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """params are tuples of (weight, bias)"""
+    device = params[0][0].device
     combined_weights = torch.zeros(
-        (
-            len(weights),
-            this_layer_output_size,
-            last_output_size + 1,  # +1 for bias node
-        ),
-        device=device,
+        (len(params), this_layer_output_size, last_output_size), device=device
     )
+    combined_bias = torch.zeros((len(params), this_layer_output_size), device=device)
 
-    for net_no, net_weight in enumerate(weights):
-        combined_weights[
-            net_no,
-            :,
-            torch.cat(
-                [
-                    torch.tensor([0], device=device),
-                    (weight_permutations[net_no] + 1).to(device),
-                ]
-            ),  # shift for bias node
-        ] = net_weight
+    for net_no, (net_weight, net_bias) in enumerate(params):
+        combined_weights[net_no, :, weight_permutations[net_no].to(device)] = net_weight
+        combined_bias[net_no, :] = net_bias
 
-    return combined_weights
+    return combined_weights, combined_bias
 
 
-def combine_weights(
+def combine_params(
     w1: torch.Tensor,
     w2: torch.Tensor,
+    b1: torch.Tensor,
+    b2: torch.Tensor,
     similarity_threshold_in_degree: float,
     added_zeros_per_row: int,
 ):
@@ -163,6 +158,8 @@ def combine_weights(
     degree_similarities = get_degree_similarities(
         w1,
         w2,
+        b1,
+        b2,
         added_zeros_per_row=added_zeros_per_row,
         maximum_accepted_matching_degree=similarity_threshold_in_degree,
     )
@@ -181,6 +178,13 @@ def combine_weights(
             w2[w2_idx_not_to_match],
         ]
     )
+    new_b = torch.cat(
+        [
+            (b1[w1_idx_to_match] + b2[w2_idx_to_match]) / 2,
+            b1[w1_idx_not_to_match],
+            b2[w2_idx_not_to_match],
+        ]
+    )
 
     new_locations_w1 = get_new_idx_permutation(
         w1_idx_to_match, w1_idx_not_to_match, not_to_match_offset=0
@@ -192,4 +196,4 @@ def combine_weights(
         not_to_match_offset=len(w1_idx_not_to_match),
     )
 
-    return new_w, (new_locations_w1, new_locations_w2)
+    return (new_w, new_b), (new_locations_w1, new_locations_w2)

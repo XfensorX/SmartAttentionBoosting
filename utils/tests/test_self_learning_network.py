@@ -66,10 +66,18 @@ def test_gradients_of_additional_outputs_do_not_change(
 
     torch.manual_seed(42)
     n = SmartAveragingNet(
-        layers, input_size, output_size, no_outputs, trained_output_no
+        layers,
+        input_size,
+        output_size,
+        no_outputs,
+        trained_output_no,
+        activation=torch.nn.Sigmoid(),  ## do not use relu here, as otherwise hidden layer with size 1 could reduce gradients to 0
     )
 
     trained_last_layer_before = deepcopy(n.output_layers[trained_output_no].weight.data)
+    trained_last_layer_bias_before = deepcopy(
+        n.output_layers[trained_output_no].bias.data
+    )
     if no_outputs > 1:
 
         other_outputs_last_layers_before = deepcopy(
@@ -81,18 +89,27 @@ def test_gradients_of_additional_outputs_do_not_change(
                 ]
             )
         )
+        other_outputs_last_layers_bias_before = deepcopy(
+            torch.stack(
+                [
+                    n.output_layers[no].bias.data
+                    for no in range(no_outputs)
+                    if no != trained_output_no
+                ]
+            )
+        )
 
-    input_layer_before = deepcopy(n.get_hidden_weights(0))
+    input_layer_before = deepcopy(n.get_hidden_params(0)[0])
+    input_layer_bias_before = deepcopy(n.get_hidden_params(0)[1])
 
     sample = torch.randn((batch, input_size))
-
     optimizer = torch.optim.Adam(n.parameters())
     optimizer.zero_grad()
 
     y_hat = n(sample)
     assert y_hat.shape == torch.Size((batch, output_size, no_outputs))
 
-    loss = torch.nn.functional.mse_loss(y_hat, torch.rand_like(y_hat) + 5)
+    loss = torch.nn.functional.mse_loss(y_hat, torch.rand_like(y_hat))
     loss.backward()
     optimizer.step()
 
@@ -107,12 +124,27 @@ def test_gradients_of_additional_outputs_do_not_change(
                 ]
             ),
         )
+        assert torch.allclose(
+            other_outputs_last_layers_bias_before,
+            torch.stack(
+                [
+                    n.output_layers[no].bias.data
+                    for no in range(no_outputs)
+                    if no != trained_output_no
+                ]
+            ),
+        )
 
     assert not torch.allclose(
         trained_last_layer_before, n.output_layers[trained_output_no].weight.data
     )
 
-    assert not torch.allclose(input_layer_before, n.get_hidden_weights(0))
+    assert not torch.allclose(
+        trained_last_layer_bias_before, n.output_layers[trained_output_no].bias.data
+    )
+
+    assert not torch.allclose(input_layer_before, n.get_hidden_params(0)[0])
+    assert not torch.allclose(input_layer_bias_before, n.get_hidden_params(0)[1])
 
 
 @pytest.mark.parametrize(
@@ -183,7 +215,11 @@ def test_average_of_one_net_is_same():
     )
 
     all_hidden_layers_before = deepcopy(
-        list(nets[0].get_hidden_weights(i) for i in range(nets[0].num_hidden_layers))
+        list(nets[0].get_hidden_params(i)[0] for i in range(nets[0].num_hidden_layers))
+    )
+
+    all_hidden_layers_bias_before = deepcopy(
+        list(nets[0].get_hidden_params(i)[1] for i in range(nets[0].num_hidden_layers))
     )
 
     n = SmartAveragingNet.average(nets, seed=30)
@@ -195,7 +231,10 @@ def test_average_of_one_net_is_same():
 
     assert n.num_hidden_layers == 4
     for i in range(n.num_hidden_layers):
-        assert torch.allclose(n.get_hidden_weights(i), all_hidden_layers_before[i])
+        assert torch.allclose(n.get_hidden_params(i)[0], all_hidden_layers_before[i])
+        assert torch.allclose(
+            n.get_hidden_params(i)[1], all_hidden_layers_bias_before[i]
+        )
 
 
 def test_all_layers_are_off():

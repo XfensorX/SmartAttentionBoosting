@@ -3,7 +3,7 @@ from typing import Literal
 
 import torch
 
-from models import MultiOutputNet, SmartAttentionLayer
+from models import SmartAttentionLayer
 from utils.types import ActivationFunction
 
 
@@ -20,8 +20,6 @@ class SmartAttentionBoosting(torch.nn.Module):
         device: torch.device = torch.device("cpu"),
     ):
         super().__init__()
-
-        raise NotImplementedError("This model is not tested.")
 
         self.input_size = input_size
         self.output_size = output_size

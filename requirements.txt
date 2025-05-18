@@ -68,7 +68,7 @@ kiwisolver==1.4.8
 lightning==2.5.0.post0
 lightning-utilities==0.11.9
 # Editable Git install with no remote (link_philipp_federated_learning==0.1)
--e /Users/philipp/Documents/Studium/Informatik/Semester 2/Federated Learning/Project
+-e /Users/philipp/Documents/Studium/Informatik/Semester_2/Federated_Learning/Project
 Markdown==3.7
 MarkupSafe==3.0.2
 matplotlib==3.10.0
